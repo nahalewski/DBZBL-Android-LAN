@@ -24,6 +24,18 @@ normal Windows program instead of inside an emulator.
 
 ---
 
+## Download (no build needed)
+
+Grab the latest **alpha** from the [Releases page](https://github.com/iExplosiveRage/DBZ-Burst-Limit-Recompiled/releases):
+
+1. Download `DBZ-Burst-Limit-Recompiled-*.zip` and extract it anywhere.
+2. Copy your extracted game files into the `game_data_root` folder inside it (see [Game files](#game-files)).
+3. Run `burstlimit.exe`.
+
+Building from source (below) is only needed if you want to change the code.
+
+---
+
 ## Requirements
 
 ### To play
@@ -202,6 +214,7 @@ Switch between the windows with Alt+Tab; the controller follows the focused wind
 | `burstlimit_manifest.toml` | Recompiler manifest: entry point, extra functions and mid-asm hooks (game patches). |
 | `src/burstlimit_patches.cpp` | Implementation of the game patches (60 FPS, online latency). |
 | `src/burstlimit_app.h`, `src/main.cpp` | Application entry point. |
+| `res/` | Application icon (embedded into the exe). |
 | `generated/rexglue.cmake` | ReXGlue build glue. `generated/default/` is produced by the build. |
 | `thirdparty/rexglue-sdk` | ReXGlue SDK (submodule, `burstlimit` branch). |
 | `scripts/` | Online launch helpers. |

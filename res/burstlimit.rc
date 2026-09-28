@@ -1,0 +1,2 @@
+// Application icon (first RT_GROUP_ICON is also used by SDL for the window).
+1 ICON "burstlimit.ico"

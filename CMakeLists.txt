@@ -31,6 +31,9 @@ if(DISCORD_SDK_ROOT AND EXISTS "${DISCORD_SDK_ROOT}/include/discordpp.h")
 endif()
 
 if(WIN32)
+    # Exe / window / taskbar icon.
+    enable_language(RC)
+    list(APPEND BURSTLIMIT_SOURCES res/burstlimit.rc)
     add_executable(burstlimit WIN32 ${BURSTLIMIT_SOURCES})
 else()
     add_executable(burstlimit ${BURSTLIMIT_SOURCES})
