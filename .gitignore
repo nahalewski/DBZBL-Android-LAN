@@ -1,0 +1,27 @@
+# Build output
+/out/
+/build/
+
+# Recompiled code is generated from the game executable during the build.
+/generated/default/
+
+# Game files (never commit copyrighted game data)
+/game_data_root/
+*.xex
+*.CPK
+*.cpk
+
+# Texture dumps / replacement packs
+/textures/
+
+# Local runtime files
+*.log
+/burstlimit.toml
+/isenseconfig/
+
+# Third-party SDKs that cannot be redistributed
+/third_party/discord_social_sdk/
+
+# IDE
+/.vs/
+/.vscode/

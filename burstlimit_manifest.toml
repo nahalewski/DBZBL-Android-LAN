@@ -1,0 +1,77 @@
+# Dragon Ball Z: Burst Limit Recompiled - ReXGlue manifest.
+#
+# Codegen now runs as part of the build, so generated/ is rewritten on every
+# change to this file. Do NOT hand-edit generated/*.cpp; put code changes in
+# [[midasm_hook]] entries below and implement them in src/.
+
+[project]
+name = "burstlimit"
+sdk_version = "0.10.0"
+game_root = "game_data_root"
+
+[entrypoint]
+file_path = "game_data_root/default.xex"
+out_directory_path = "generated/default"
+includes = []
+
+[entrypoint.functions]
+0x820CF7B0 = {}
+0x8247C690 = {}
+0x823A0B50 = {}
+0x824A8918 = {}
+0x8216CC00 = {}
+0x822164E0 = {}
+0x824D7440 = {}
+0x824ED0C8 = {}
+
+# --- 60 FPS patch (src/burstlimit_patches.cpp) ---
+
+# li r3,2 ; bl sub_82218940  -> frame interval 1 when patch_60fps is on.
+[[entrypoint.midasm_hook]]
+address = 0x8221CFEC
+name = "BurstLimit60FpsForceCap"
+registers = ["r3"]
+after_instruction = true
+
+[[entrypoint.midasm_hook]]
+address = 0x82232AEC
+name = "BurstLimit60FpsForceCap"
+registers = ["r3"]
+after_instruction = true
+
+# beq when the tick counter is 0: with interval 1 it is always 0, so the
+# match-quit and pause (START) paths never run and the game locks up.
+[[entrypoint.midasm_hook]]
+address = 0x821DBE10
+name = "BurstLimit60FpsSkipTickGate"
+registers = ["cr6"]
+
+[[entrypoint.midasm_hook]]
+address = 0x821DCE98
+name = "BurstLimit60FpsSkipTickGate"
+registers = ["cr6"]
+
+# --- Online (src/burstlimit_patches.cpp) ---
+
+# cmpwi cr6,r11,6 -> 2 while online_input_delay_test is on: resend unacked
+# reliable messages every 2 driver ticks instead of 6.
+[[entrypoint.midasm_hook]]
+address = 0x82293A40
+name = "BurstLimitOnlineInputDelay"
+registers = ["r11", "cr6"]
+after_instruction = true
+
+# --- Online latency: the frame driver sub_8217E100 puts its task to sleep for
+# 3 frames after each tick (li r4,3 ; bl sub_82122310), so online input is
+# sampled and exchanged at 15 Hz. online_fast_tick makes it run every frame.
+[[entrypoint.midasm_hook]]
+address = 0x8217E178
+name = "BurstLimitOnlineDriverSleep"
+registers = ["r4"]
+after_instruction = true
+
+[[entrypoint.midasm_hook]]
+address = 0x8217E1B8
+name = "BurstLimitOnlineDriverSleep"
+registers = ["r4"]
+after_instruction = true

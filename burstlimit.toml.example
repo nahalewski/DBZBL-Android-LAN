@@ -1,0 +1,15 @@
+# Copy next to burstlimit.exe as burstlimit.toml.
+log_level = "info"
+fullscreen = false
+vsync = true
+gpu_plugin = "xenos"
+gpu_allow_invalid_fetch_constants = true
+
+# Resolution scale (1 = native 720p, 2 or 3 = supersampled).
+draw_resolution_scale_x = 2
+draw_resolution_scale_y = 2
+
+# Game patches (see README).
+patch_60fps = true
+online_fast_tick = true
+online_input_delay_test = true
