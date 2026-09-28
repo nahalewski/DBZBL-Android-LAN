@@ -19,7 +19,6 @@ normal Windows program instead of inside an emulator.
 - **Low-latency online** (`online_fast_tick`): the game's match driver normally only runs every 4th frame and
   sends input in 12-frame batches (~1 second of input delay even on LAN). This patch runs it every frame.
 - **Texture dumping / replacement** (`texture_dump_enabled`, `texture_replace_enabled`).
-- **Debug overlay (F3)** showing the game's real FPS and the display FPS.
 - Optional **Discord Rich Presence**.
 
 ---
