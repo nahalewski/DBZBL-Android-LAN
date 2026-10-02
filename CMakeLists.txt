@@ -18,6 +18,7 @@ include(generated/rexglue.cmake)
 
 set(BURSTLIMIT_SOURCES
     src/main.cpp
+    src/burstlimit_camera.cpp
     src/burstlimit_patches.cpp
 )
 

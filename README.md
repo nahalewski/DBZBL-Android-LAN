@@ -13,14 +13,27 @@ normal Windows program instead of inside an emulator.
 ## Features
 
 - **Native x64 build** of the game code (no JIT), Direct3D 12 renderer.
-- **60 FPS patch** (`patch_60fps`) including fixes for pause (START) and quitting a match.
+- **In-game settings menu**: **F1**, or **Back + Start** on the controller. Resolution, upscaler, frame rate,
+  field of view, post effects, free camera and more; changes apply right away and are saved to `burstlimit.toml`.
+- **Frame rate cap** (`frame_rate`): 30 (the original), 60, 120, 144 or unlocked, with fixes for pause, quitting
+  a match and Training's "Reset Standing Position" above 30 FPS.
+- **Resolution and upscaling**: internal resolution up to 4K and beyond, changeable while playing; AMD FSR 1/2/3
+  and CAS sharpening, FXAA, anisotropic filtering.
+- **Field of view** option (`field_of_view`, 50-200 %).
+- **Cleaner image at high resolution**: the game's depth of field, glow blur and motion blur sample at fixed 720p
+  distances, which leaves halos and ghost copies around the characters above 720p. They are off by default and
+  can be turned back on (`depth_of_field`, `glow_blur`, `motion_blur`).
+- **Free camera / photo mode** (`free_camera`): fly the camera anywhere, also while paused, hide the HUD, zoom
+  and tilt.
+- **FPS panel** (F3): frame rate, frame time graph, render resolution and upscaler, in any corner.
 - **Online play over LAN / Radmin VPN**: Xbox LIVE sign-in, session create/search/join and player matches,
   emulated on top of plain UDP.
 - **Low-latency online** (`online_fast_tick`, `online_tick_sleep`): the game's match driver normally only runs
   every 4th frame and sends input in 12-frame batches (~1 second of input delay even on LAN). The patch makes the
   step configurable; the default (`online_tick_sleep = 1`) cuts the delay to about a tenth without slow motion
   over the internet.
-- **Texture dumping / replacement** (`texture_dump_enabled`, `texture_replace_enabled`).
+- **Texture dumping / replacement** (`texture_dump_enabled`, `texture_replace_enabled`): replacements get
+  mipmaps and are decoded in the background at startup, so they don't stutter the game when first used.
 - Optional **Discord Rich Presence**.
 
 ---
@@ -73,7 +86,8 @@ git submodule update --init --recursive
 
 The ReXGlue SDK lives in `thirdparty/rexglue-sdk` (branch `burstlimit` of
 [iExplosiveRage/rexglue-sdk](https://github.com/iExplosiveRage/rexglue-sdk)). It contains the Burst Limit
-specific runtime changes (online, texture replacement, overlay, codegen fixes).
+specific runtime changes (online, settings menu, upscalers, frame pacing, texture replacement, overlay,
+codegen fixes).
 
 ---
 
@@ -128,6 +142,16 @@ Other presets: `win-amd64-debug`, `win-amd64-release`.
 > **Note:** the recompiler only re-runs when the manifest or the game executable changes. If you change the
 > SDK's code generator, delete `generated/default` before building.
 
+### Optional: AMD FSR 2 / FSR 3
+FSR 1 and CAS are always built in. FSR 2 and FSR 3 need the AMD FidelityFX SDK, which needs the
+[Vulkan SDK](https://vulkan.lunarg.com/) 1.3.250 or newer installed. Configure with:
+
+```bat
+cmake --preset win-amd64-relwithdebinfo -DREXGLUE_ENABLE_FIDELITYFX=ON
+```
+
+The build copies `amd_fidelityfx_dx12.dll` next to `burstlimit.exe`; keep it there.
+
 ### Optional: Discord Rich Presence
 Download the Discord Social SDK and configure with:
 
@@ -147,13 +171,17 @@ This starts `out\build\win-amd64-relwithdebinfo\burstlimit.exe` with `game_data_
 You can also copy `burstlimit.exe` and the `.dll` files from the build folder next to a `game_data_root`
 folder and run it directly.
 
-Settings are stored in `burstlimit.toml` (see `burstlimit.toml.example`). Any setting can also be passed on
-the command line, e.g. `--patch_60fps=true`.
+Settings are stored in `burstlimit.toml` (see `burstlimit.toml.example`). Most of them can be changed in the
+settings menu (F1). Any setting can also be passed on the command line, e.g. `--frame_rate=60`.
 
 ### Controls
 - An Xbox-compatible controller works out of the box.
 - Keyboard: start with `--mnk_mode=true` (Space = A, Backspace = B, Enter = Start, WASD = move).
-- **F3** toggles the debug overlay (game FPS / display FPS).
+- **F1** or **Back + Start**: settings menu (the buttons can be changed to L3 + R3 in the menu). **Y** in the
+  menu turns the free camera on or off.
+- **F3**: FPS panel.
+- Free camera: left stick moves, right stick looks, LB/RB down/up, LT/RT slower/faster, D-pad up/down zoom,
+  D-pad left/right tilt, A hides the HUD, Y resets, B exits. Pause the game first for a photo mode.
 - Input only goes to the focused window.
 
 ---
@@ -162,14 +190,26 @@ the command line, e.g. `--patch_60fps=true`.
 
 | Setting | Default | Description |
 |---|---|---|
-| `patch_60fps` | `false` | Runs the game at 60 FPS (with pause and match-exit fixes). |
+| `frame_rate` | *(empty)* | Frame rate cap: `30` (the original), `60`, `120`, `144` or `unlocked`. Empty = from `patch_60fps` and `vsync` (older settings). |
+| `draw_resolution_scale_x/y` | `1` | Internal resolution scale: `1` = 720p, `2` = 1440p, `3` = 4K (sharper, heavier). |
+| `present_effect` | `bilinear` | `bilinear` (off), `cas` (sharpening), `fsr`, `fsr2`, `fsr3` (AMD FSR upscaling). |
+| `present_fsr_quality_mode` | `auto` | How far below the resolution FSR renders: `auto` (native), `nativeaa`, `quality`, `balanced`, `performance`, `ultra_performance`. |
+| `field_of_view` | `100` | Field of view in percent of the original (50-200). |
+| `depth_of_field` | `false` | Blurs the background behind the fighters. |
+| `glow_blur` | `false` | Soft glow blur (leaves a halo around the characters at high resolution). |
+| `motion_blur` | `false` | Directional blur during fast moves. |
+| `free_camera` | `false` | Free camera (always off at startup). |
+| `quick_menu_buttons` | `back+start` | Controller buttons for the settings menu: `back+start`, `l3+r3` or `none` (F1 always works). |
+| `debug_overlay` | `false` | FPS panel (F3). |
+| `debug_overlay_position` | `top-left` | `top-left`, `top-right`, `bottom-left` or `bottom-right`. |
+| `patch_60fps` | `false` | Older 60 FPS setting, only used while `frame_rate` is empty. |
 | `online_fast_tick` | `true` | Uses `online_tick_sleep` for the online match driver instead of the game's original 4-frame step. **Both players must use the same value.** |
 | `online_tick_sleep` | `1` | Online input buffer: `0` = same PC / LAN, `1` = internet (recommended), `2` = high ping, `3` = original game (~1 s delay). Lower = less delay, but slow motion appears if the connection cannot keep up. **Both players must use the same value.** |
 | `online_input_delay_test` | `true` | Resends unacknowledged online messages every 2 ticks instead of 6. |
-| `vsync` | `true` | Keep on for a stable game speed. |
-| `draw_resolution_scale_x/y` | `1` | Internal resolution scale (2 or 3 = sharper, heavier). |
+| `vsync` | `true` | Older frame rate setting, only used while `frame_rate` is empty (`false` = unlocked). |
 | `texture_dump_enabled` | `false` | Dump textures to `textures/dump`. |
 | `texture_replace_enabled` | `false` | Load replacements from `textures/replace` (next to the exe). |
+| `texture_replace_preload` | `true` | Decode all the replacements in the background at startup, so they don't stutter the game when first used (keeps them in RAM). |
 | `texture_folder` | *(exe folder)/textures* | Override the textures folder. |
 | `log_level` | `info` | `debug` / `info` / `warning` / `error`. |
 
@@ -204,6 +244,9 @@ Switch between the windows with Alt+Tab; the controller follows the focused wind
 ## Known issues
 
 - Online play has only been tested on LAN / Radmin VPN, not over the public internet without a VPN.
+- A wider field of view can show missing objects at the edges of the screen: the game doesn't draw what it
+  doesn't expect to be seen.
+- FSR 2 and FSR 3 can leave trails behind moving characters, as the game has no motion vectors for them.
 - The Xbox LIVE friends list and leaderboards are not implemented.
 - Running two copies on one PC (local online test) can drop frames on slower machines.
 
@@ -214,8 +257,9 @@ Switch between the windows with Alt+Tab; the controller follows the focused wind
 | Path | Contents |
 |---|---|
 | `burstlimit_manifest.toml` | Recompiler manifest: entry point, extra functions and mid-asm hooks (game patches). |
-| `src/burstlimit_patches.cpp` | Implementation of the game patches (60 FPS, online latency). |
-| `src/burstlimit_app.h`, `src/main.cpp` | Application entry point. |
+| `src/burstlimit_patches.cpp` | Implementation of the game patches (frame rate, online latency, post effects, field of view). |
+| `src/burstlimit_camera.cpp` | Free camera / photo mode. |
+| `src/burstlimit_app.h`, `src/main.cpp` | Application entry point and the settings menu. |
 | `res/` | Application icon (embedded into the exe). |
 | `generated/rexglue.cmake` | ReXGlue build glue. `generated/default/` is produced by the build. |
 | `thirdparty/rexglue-sdk` | ReXGlue SDK (submodule, `burstlimit` branch). |

@@ -51,6 +51,21 @@ address = 0x821DCE98
 name = "BurstLimit60FpsSkipTickGate"
 registers = ["cr6"]
 
+# Same gate on the Training menu's "Reset Standing Position" path.
+[[entrypoint.midasm_hook]]
+address = 0x821DC428
+name = "BurstLimit60FpsSkipTickGate"
+registers = ["cr6"]
+
+# --- Free camera (src/burstlimit_camera.cpp) ---
+
+# Main loop (sub_822197D0) right after the frame's update - normal or paused -
+# and before drawing. r30 is unused.
+[[entrypoint.midasm_hook]]
+address = 0x822198F8
+name = "BurstLimitCameraFrame"
+registers = ["r30"]
+
 # --- Online (src/burstlimit_patches.cpp) ---
 
 # cmpwi cr6,r11,6 -> 2 while online_input_delay_test is on: resend unacked

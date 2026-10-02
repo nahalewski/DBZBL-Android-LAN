@@ -1,15 +1,27 @@
+#include <atomic>
 #include <cstdint>
 #include <mutex>
+#include <string>
 #include <string_view>
+#include <vector>
 
 #include <rex/cvar.h>
+#include <rex/graphics/draw_overrides.h>
+#include <rex/graphics/frame_pacing.h>
 #include <rex/memory.h>
 #include <rex/memory/utils.h>
 #include <rex/ppc/context.h>
 #include <rex/runtime.h>
 
 REXCVAR_DEFINE_BOOL(patch_60fps, false, "Patches",
-                    "Enable the 60 FPS patch with pause and match-exit fixes.")
+                    "Enable the 60 FPS patch with pause and match-exit fixes (older setting, "
+                    "used while frame_rate is empty).")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+
+REXCVAR_DEFINE_STRING(frame_rate, "", "Patches",
+                      "Frame rate cap: 30 (the original), 60, 120, 144 or unlocked. Empty = "
+                      "from patch_60fps and vsync.")
+    .allowed({"", "30", "60", "120", "144", "unlocked"})
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
 REXCVAR_DEFINE_BOOL(online_fast_tick, true, "Patches",
@@ -25,19 +37,133 @@ REXCVAR_DEFINE_BOOL(online_input_delay_test, true, "Patches",
                     "Online: lower the input buffer threshold at 0x82293A40 from 6 to 2.")
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
+// The game's blur effects sample at fixed 720p distances. Above
+// draw_resolution_scale 1 that turns into lines in the background and ghost
+// copies around the characters, so they are off unless asked for.
+REXCVAR_DEFINE_BOOL(depth_of_field, false, "Patches",
+                    "Blur the background behind the fighters (depth of field).")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+
+REXCVAR_DEFINE_BOOL(glow_blur, false, "Patches",
+                    "Soft glow blur (causes the halo around the characters at high resolution).")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+
+REXCVAR_DEFINE_BOOL(motion_blur, false, "Patches", "Directional blur during fast moves.")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+
+REXCVAR_DEFINE_INT32(field_of_view, 100, "Patches",
+                     "Field of view in percent of the game's (100 = original, 120 = 20% wider). "
+                     "What the game leaves out beyond its own view stays missing at the edges.")
+    .range(50, 200)
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+
 namespace {
+
+// Ucode hashes of the game's post-processing pixel shaders (from
+// --dump_shaders).
+// 5-tap background blur. Skipped, the scene copy it would blur is used as is.
+constexpr uint64_t kDepthOfFieldBlurShader = 0x0A9E2DB7A0032F37;
+// Depth of field composite used in some scenes: lerp(sharp, blurred,
+// clamp(depth factor, c2.x, c2.y)), then the screen flash.
+constexpr uint64_t kDepthOfFieldCompositeShader = 0xA71B2D3254A81E3C;
+// 11-tap Gaussian blur.
+constexpr uint64_t kGlowBlurShader = 0x97906B6915CE1A5E;
+// 17-tap directional blur with a depth mask.
+constexpr uint64_t kMotionBlurShaders[] = {0x1D256B3F80DB44A7, 0xD74A5DAE8A193E23};
+
+void ApplyPostEffectSettings() {
+  std::vector<rex::graphics::PixelShaderDrawOverride> overrides;
+  if (!REXCVAR_GET(depth_of_field)) {
+    overrides.push_back({kDepthOfFieldBlurShader, true, {}});
+    // A blur factor of 0 keeps the sharp image (and the flash still works).
+    rex::graphics::PixelShaderDrawOverride& dof = overrides.emplace_back();
+    dof.ucode_hash = kDepthOfFieldCompositeShader;
+    dof.constants.push_back({2, 0b0011, {0.0f, 0.0f, 0.0f, 0.0f}});
+  }
+  if (!REXCVAR_GET(glow_blur)) {
+    overrides.push_back({kGlowBlurShader, true, {}});
+  }
+  if (!REXCVAR_GET(motion_blur)) {
+    for (uint64_t shader : kMotionBlurShaders) {
+      overrides.push_back({shader, true, {}});
+    }
+  }
+  rex::graphics::SetPixelShaderDrawOverrides("burstlimit_post_effects", std::move(overrides));
+}
+
+// Scene effects the game draws as screen-space sprites (W = 1) - they have to
+// be told to follow the field of view like the perspective geometry.
+// 4A56087EF49DF636: the ki aura.
+constexpr uint64_t kSceneSpriteShaders[] = {0x4A56087EF49DF636};
+
+void ApplyFieldOfView() {
+  // A wider view shrinks the projected scene: x / tan(fov / 2).
+  const int32_t percent = REXCVAR_GET(field_of_view);
+  rex::graphics::SetSceneProjectionScale(percent > 0 ? 100.0f / float(percent) : 1.0f);
+
+  std::vector<rex::graphics::PixelShaderDrawOverride> overrides;
+  for (uint64_t shader : kSceneSpriteShaders) {
+    rex::graphics::PixelShaderDrawOverride& sprite = overrides.emplace_back();
+    sprite.ucode_hash = shader;
+    sprite.scene_projection_all_vertices = true;
+  }
+  rex::graphics::SetPixelShaderDrawOverrides("burstlimit_scene_sprites", std::move(overrides));
+}
+
+struct PostEffectCvarCallbacks {
+  PostEffectCvarCallbacks() {
+    ApplyPostEffectSettings();
+    ApplyFieldOfView();
+    for (const char* name : {"depth_of_field", "glow_blur", "motion_blur"}) {
+      rex::cvar::RegisterChangeCallback(
+          name, [](std::string_view, std::string_view) { ApplyPostEffectSettings(); });
+    }
+    rex::cvar::RegisterChangeCallback(
+        "field_of_view", [](std::string_view, std::string_view) { ApplyFieldOfView(); });
+  }
+};
+
+PostEffectCvarCallbacks g_post_effect_cvar_callbacks;
 
 // Guest frame interval (vblanks per game tick). The game writes 2 (30 FPS)
 // through sub_82218940; the 60 FPS patch forces 1. The pause/match-quit code
 // only runs when the tick counter at [0x825205E8]+3228 is non-zero, which
 // never happens with interval 1, so the Skip hooks in the generated code must
 // stay in place or START/pause locks up.
+// With interval 2 the game holds itself to 30 FPS with a timer of its own
+// (sub_82119D18). With 1 it waits for the next vblank, and its simulation
+// follows the time that really passed, so the vblank rate sets the frame rate.
 constexpr uint32_t kFpsCapAddress = 0x826DE600;
 constexpr uint32_t kFpsCap30 = 2;
 constexpr uint32_t kFpsCap60 = 1;
 
 std::mutex g_patch_mutex;
 bool g_fps_cap_applied = false;
+// Frame interval 1 wanted (any frame rate but 30).
+std::atomic<bool> g_interval_one{false};
+
+void Apply60FpsDataPatch();
+
+void ApplyFrameRate() {
+  const std::string rate = REXCVAR_GET(frame_rate);
+  if (rate.empty()) {
+    // The older settings: patch_60fps, paced by vsync.
+    g_interval_one.store(REXCVAR_GET(patch_60fps));
+    rex::graphics::SetGuestVblankRate(0.0);
+  } else {
+    g_interval_one.store(rate != "30");
+    double vblank_rate = 60.0;
+    if (rate == "120") {
+      vblank_rate = 120.0;
+    } else if (rate == "144") {
+      vblank_rate = 144.0;
+    } else if (rate == "unlocked") {
+      vblank_rate = 1000.0;
+    }
+    rex::graphics::SetGuestVblankRate(vblank_rate);
+  }
+  Apply60FpsDataPatch();
+}
 
 void Apply60FpsDataPatch() {
   auto* runtime = rex::Runtime::instance();
@@ -59,7 +185,7 @@ void Apply60FpsDataPatch() {
 
   const uint32_t current = rex::memory::load_and_swap<uint32_t>(fps_cap);
 
-  if (REXCVAR_GET(patch_60fps)) {
+  if (g_interval_one.load()) {
     // Only override the game's own 30 FPS value; leave 0 (not initialized
     // yet) and any other mode the game picks alone.
     if (current == kFpsCap30) {
@@ -78,13 +204,15 @@ void Apply60FpsDataPatch() {
 
 struct PatchCvarCallbacks {
   PatchCvarCallbacks() {
-    rex::cvar::RegisterChangeCallback(
-        "patch_60fps",
-        [](std::string_view, std::string_view) { Apply60FpsDataPatch(); });
+    for (const char* name : {"patch_60fps", "frame_rate"}) {
+      rex::cvar::RegisterChangeCallback(
+          name, [](std::string_view, std::string_view) { ApplyFrameRate(); });
+    }
   }
 
   ~PatchCvarCallbacks() {
     rex::cvar::UnregisterChangeCallbacks("patch_60fps");
+    rex::cvar::UnregisterChangeCallbacks("frame_rate");
   }
 };
 
@@ -92,10 +220,28 @@ PatchCvarCallbacks g_patch_cvar_callbacks;
 
 bool Is60FpsEnabled() {
   Apply60FpsDataPatch();
-  return REXCVAR_GET(patch_60fps);
+  return g_interval_one.load();
 }
 
 }  // namespace
+
+// Called once the config and the command line are applied (values set there
+// don't always go through the change callbacks).
+void BurstLimitApplyPostEffectSettings() {
+  ApplyPostEffectSettings();
+  ApplyFieldOfView();
+  // The free camera takes the controller away, never start in it.
+  rex::cvar::SetFlagByName("free_camera", "false");
+  // Configs from before the frame_rate option keep what they had.
+  if (REXCVAR_GET(frame_rate).empty()) {
+    const char* rate = "30";
+    if (REXCVAR_GET(patch_60fps)) {
+      rate = rex::cvar::Query<bool>("vsync") ? "60" : "unlocked";
+    }
+    rex::cvar::SetFlagByName("frame_rate", rate);
+  }
+  ApplyFrameRate();
+}
 
 // Mid-asm hooks, wired up in burstlimit_manifest.toml.
 
