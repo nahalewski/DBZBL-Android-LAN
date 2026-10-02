@@ -16,8 +16,10 @@ normal Windows program instead of inside an emulator.
 - **60 FPS patch** (`patch_60fps`) including fixes for pause (START) and quitting a match.
 - **Online play over LAN / Radmin VPN**: Xbox LIVE sign-in, session create/search/join and player matches,
   emulated on top of plain UDP.
-- **Low-latency online** (`online_fast_tick`): the game's match driver normally only runs every 4th frame and
-  sends input in 12-frame batches (~1 second of input delay even on LAN). This patch runs it every frame.
+- **Low-latency online** (`online_fast_tick`, `online_tick_sleep`): the game's match driver normally only runs
+  every 4th frame and sends input in 12-frame batches (~1 second of input delay even on LAN). The patch makes the
+  step configurable; the default (`online_tick_sleep = 1`) cuts the delay to about a tenth without slow motion
+  over the internet.
 - **Texture dumping / replacement** (`texture_dump_enabled`, `texture_replace_enabled`).
 - Optional **Discord Rich Presence**.
 
@@ -161,7 +163,8 @@ the command line, e.g. `--patch_60fps=true`.
 | Setting | Default | Description |
 |---|---|---|
 | `patch_60fps` | `false` | Runs the game at 60 FPS (with pause and match-exit fixes). |
-| `online_fast_tick` | `true` | Runs the online match driver every frame instead of every 4th. **Both players must use the same value.** |
+| `online_fast_tick` | `true` | Uses `online_tick_sleep` for the online match driver instead of the game's original 4-frame step. **Both players must use the same value.** |
+| `online_tick_sleep` | `1` | Online input buffer: `0` = same PC / LAN, `1` = internet (recommended), `2` = high ping, `3` = original game (~1 s delay). Lower = less delay, but slow motion appears if the connection cannot keep up. **Both players must use the same value.** |
 | `online_input_delay_test` | `true` | Resends unacknowledged online messages every 2 ticks instead of 6. |
 | `vsync` | `true` | Keep on for a stable game speed. |
 | `draw_resolution_scale_x/y` | `1` | Internal resolution scale (2 or 3 = sharper, heavier). |

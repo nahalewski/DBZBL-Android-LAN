@@ -13,7 +13,12 @@ REXCVAR_DEFINE_BOOL(patch_60fps, false, "Patches",
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
 REXCVAR_DEFINE_BOOL(online_fast_tick, true, "Patches",
-                    "Online: run the match frame driver every frame instead of every 4th.")
+                    "Online: use online_tick_sleep for the match frame driver (off = game default 3).")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+
+REXCVAR_DEFINE_INT32(online_tick_sleep, 1, "Patches",
+                     "Online: frames the match driver sleeps between input ticks (0 = LAN, 1 = good "
+                     "ping, 2 = average ping, 3 = game default). Both players must use the same value.")
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
 REXCVAR_DEFINE_BOOL(online_input_delay_test, true, "Patches",
@@ -111,7 +116,8 @@ void BurstLimit60FpsSkipTickGate(PPCCRRegister& cr6) {
 // li r4,3 before bl sub_82122310 in the online frame driver: task sleep ticks.
 void BurstLimitOnlineDriverSleep(PPCRegister& r4) {
   if (REXCVAR_GET(online_fast_tick)) {
-    r4.u64 = 0;
+    const int32_t sleep = REXCVAR_GET(online_tick_sleep);
+    r4.u64 = static_cast<uint64_t>(sleep < 0 ? 0 : (sleep > 3 ? 3 : sleep));
   }
 }
 
