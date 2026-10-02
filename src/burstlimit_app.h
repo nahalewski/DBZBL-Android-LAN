@@ -120,6 +120,15 @@ class BurstlimitApp : public rex::ReXApp {
         "Texture filtering", "anisotropic_override",
         {{"-1", "Game"}, {"1", "1x"}, {"2", "2x"}, {"3", "4x"}, {"4", "8x"}, {"5", "16x"}},
         "Keeps textures sharp when seen at an angle, like the floor."));
+    graphics.items.push_back(toggle(
+        "Texture pack", "texture_replace_enabled",
+        "HD textures from the textures\\replace folder next to burstlimit.exe."));
+    Item& preload = graphics.items.emplace_back(toggle(
+        "Preload textures", "texture_replace_preload",
+        "Loads the whole texture pack into memory at startup, so textures don't stutter the "
+        "first time they show up. Applies after a restart."));
+    preload.shown_if_cvar = "texture_replace_enabled";
+    preload.shown_if_values = {"true"};
 
     rex::ui::QuickMenuSection& effects = menu.sections.emplace_back();
     effects.title = "EFFECTS";

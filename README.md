@@ -32,8 +32,9 @@ normal Windows program instead of inside an emulator.
   every 4th frame and sends input in 12-frame batches (~1 second of input delay even on LAN). The patch makes the
   step configurable; the default (`online_tick_sleep = 1`) cuts the delay to about a tenth without slow motion
   over the internet.
-- **Texture dumping / replacement** (`texture_dump_enabled`, `texture_replace_enabled`): replacements get
-  mipmaps and are decoded in the background at startup, so they don't stutter the game when first used.
+- **Texture dumping / replacement** (`texture_dump_enabled`, `texture_replace_enabled`): put a texture pack in
+  `textures\replace` and turn on **Texture pack** in the settings menu. Replacements get mipmaps and are decoded
+  in the background at startup, so they don't stutter the game when first used.
 - Optional **Discord Rich Presence**.
 
 ---
