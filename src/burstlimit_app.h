@@ -129,6 +129,15 @@ class BurstlimitApp : public rex::ReXApp {
         {{"none", "Off"}, {"fxaa", "FXAA"}, {"fxaa_extreme", "FXAA (strong)"}},
         "Smooths jagged edges. Softens the image a little."));
     graphics.items.push_back(choice(
+        "NVIDIA DLAA", "dlss_mode", {{"off", "Off"}, {"dlaa", "On"}},
+        "NVIDIA's AI anti-aliasing for the 3D scene, at the resolution above (RTX GPUs). The "
+        "HUD stays as it is."));
+    Item& dlss_preset = graphics.items.emplace_back(choice(
+        "DLSS model", "dlss_preset", {{"k", "K"}, {"l", "L"}, {"m", "M"}},
+        "NVIDIA's DLSS models. M is sharper and more stable than K; L is like M but slower."));
+    dlss_preset.shown_if_cvar = "dlss_mode";
+    dlss_preset.shown_if_values = {"dlaa"};
+    graphics.items.push_back(choice(
         "Texture filtering", "anisotropic_override",
         {{"-1", "Game"}, {"1", "1x"}, {"2", "2x"}, {"3", "4x"}, {"4", "8x"}, {"5", "16x"}},
         "Keeps textures sharp when seen at an angle, like the floor."));
