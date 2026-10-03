@@ -8,6 +8,8 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
+#include <functional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -459,8 +461,273 @@ void MemDump(std::string_view args) {
   rex::FlushLogging();
 }
 
+// mem_save: <hex address> <hex size> <file>: raw guest memory (big-endian, as
+// the game sees it) to a file; pages that aren't committed are written as
+// zeros, so file offsets stay address - start.
+void MemSave(std::string_view args) {
+  const std::vector<std::string> parts = SplitArgs(args);
+  if (parts.size() < 3) {
+    REXLOG_WARN("mem_save: usage: mem_save <hex address> <hex size> <file>");
+    return;
+  }
+  const uint32_t start = uint32_t(std::strtoul(parts[0].c_str(), nullptr, 16)) & ~0xFFFu;
+  const uint32_t size = uint32_t(std::strtoul(parts[1].c_str(), nullptr, 16));
+  auto* runtime = rex::Runtime::instance();
+  auto* memory = runtime ? runtime->memory() : nullptr;
+  if (!memory || !size) {
+    return;
+  }
+  std::ofstream file(parts[2], std::ios::binary | std::ios::trunc);
+  if (!file) {
+    REXLOG_WARN("mem_save: can't open {}", parts[2]);
+    return;
+  }
+  static const uint8_t kZeros[0x1000] = {};
+  uint32_t committed = 0;
+  for (uint64_t page = start; page < uint64_t(start) + size; page += 0x1000) {
+    const uint32_t address = uint32_t(page);
+    auto* heap = memory->LookupHeap(address);
+    rex::memory::HeapAllocationInfo info = {};
+    if (heap && heap->QueryRegionInfo(address, &info) &&
+        (info.state & rex::memory::kMemoryAllocationCommit)) {
+      file.write(memory->TranslateVirtual<const char*>(address), 0x1000);
+      ++committed;
+    } else {
+      file.write(reinterpret_cast<const char*>(kZeros), 0x1000);
+    }
+  }
+  REXLOG_WARN("mem_save: {:08X}+{:X} -> {} ({} committed pages)", start, size, parts[2], committed);
+  rex::FlushLogging();
+}
+
+// pad_press: <buttons> [milliseconds] [user]: holds controller buttons for the
+// game, e.g. "pad_press rb" or "pad_press lb+y 300". Names: a b x y lb rb back
+// start l3 r3 up down left right.
+void PadPress(std::string_view args) {
+  const std::vector<std::string> parts = SplitArgs(args);
+  if (parts.empty()) {
+    REXLOG_WARN("pad_press: usage: pad_press <a|b|x|y|lb|rb|back|start|l3|r3|up|down|left|right>"
+                "[+...] [ms] [user]");
+    return;
+  }
+  static const std::pair<const char*, uint16_t> kButtons[] = {
+      {"up", 0x0001},    {"down", 0x0002}, {"left", 0x0004}, {"right", 0x0008},
+      {"start", 0x0010}, {"back", 0x0020}, {"l3", 0x0040},   {"r3", 0x0080},
+      {"lb", 0x0100},    {"rb", 0x0200},   {"a", 0x1000},    {"b", 0x2000},
+      {"x", 0x4000},     {"y", 0x8000},
+  };
+  uint16_t buttons = 0;
+  size_t start = 0;
+  const std::string& names = parts[0];
+  while (start <= names.size()) {
+    const size_t end = std::min(names.find('+', start), names.size());
+    const std::string name = names.substr(start, end - start);
+    bool found = false;
+    for (const auto& [button_name, bit] : kButtons) {
+      if (name == button_name) {
+        buttons |= bit;
+        found = true;
+      }
+    }
+    if (!found) {
+      REXLOG_WARN("pad_press: unknown button '{}'", name);
+      return;
+    }
+    start = end + 1;
+  }
+  const uint32_t ms = parts.size() > 1 ? uint32_t(std::strtoul(parts[1].c_str(), nullptr, 0)) : 150;
+  const uint32_t user = parts.size() > 2 ? uint32_t(std::strtoul(parts[2].c_str(), nullptr, 0)) : 0;
+  if (auto* input = GetInputSystem()) {
+    input->InjectButtons(user, buttons, ms);
+    REXLOG_WARN("pad_press: {:04X} for {} ms on user {}", buttons, ms, user);
+  }
+}
+
+// Memory snapshots for finding a value by how it changes (like a cheat
+// search): mem_snap <slot>, then mem_diff <slot a> <slot b> <size 1|2|4>
+// <value in a|*> <value in b|*>, then mem_narrow <slot> <size> <value> to keep
+// the candidates that have that value in another snapshot ("now" = live).
+struct SnapshotRange {
+  uint32_t address;
+  std::vector<uint8_t> bytes;
+};
+std::vector<std::vector<SnapshotRange>> g_snapshots(8);
+std::vector<uint32_t> g_candidates;
+
+void ForEachWritableGuestRange(
+    const std::function<void(uint32_t, const uint8_t*, size_t)>& visit) {
+  auto* runtime = rex::Runtime::instance();
+  auto* memory = runtime ? runtime->memory() : nullptr;
+  if (!memory) {
+    return;
+  }
+  // 0x40000000-0xBFFFFFFF: the virtual heaps, the image's data and one view
+  // of physical memory (0xC0000000+ are more views of the same memory).
+  uint64_t address = 0x40000000;
+  while (address < 0xC0000000ull) {
+    auto* heap = memory->LookupHeap(uint32_t(address));
+    if (!heap) {
+      address += 0x10000;
+      continue;
+    }
+    rex::memory::HeapAllocationInfo info = {};
+    if (!heap->QueryRegionInfo(uint32_t(address), &info) || !info.region_size) {
+      address += heap->page_size();
+      continue;
+    }
+    const uint64_t region_end = std::min<uint64_t>(uint64_t(info.base_address) + info.region_size,
+                                                   0xC0000000ull);
+    if ((info.state & rex::memory::kMemoryAllocationCommit) &&
+        (info.protect & rex::memory::kMemoryProtectWrite)) {
+      visit(uint32_t(address), memory->TranslateVirtual<const uint8_t*>(uint32_t(address)),
+            size_t(region_end - address));
+    }
+    address = std::max(region_end, address + 4);
+  }
+}
+
+uint32_t LoadValue(const uint8_t* p, uint32_t size) {
+  switch (size) {
+    case 1:
+      return *p;
+    case 2:
+      return rex::memory::load_and_swap<uint16_t>(p);
+    default:
+      return rex::memory::load_and_swap<uint32_t>(p);
+  }
+}
+
+// Value of `address` in snapshot `slot` (-1 = live memory).
+bool SnapshotValue(int slot, uint32_t address, uint32_t size, uint32_t& value) {
+  if (slot < 0) {
+    auto* runtime = rex::Runtime::instance();
+    auto* memory = runtime ? runtime->memory() : nullptr;
+    if (!memory) {
+      return false;
+    }
+    value = LoadValue(memory->TranslateVirtual<const uint8_t*>(address), size);
+    return true;
+  }
+  const auto& ranges = g_snapshots[size_t(slot)];
+  auto it = std::upper_bound(ranges.begin(), ranges.end(), address,
+                             [](uint32_t a, const SnapshotRange& r) { return a < r.address; });
+  if (it == ranges.begin()) {
+    return false;
+  }
+  --it;
+  if (address + size > it->address + it->bytes.size()) {
+    return false;
+  }
+  value = LoadValue(it->bytes.data() + (address - it->address), size);
+  return true;
+}
+
+int ParseSlot(const std::string& text) {
+  if (text == "now") {
+    return -1;
+  }
+  const int slot = std::atoi(text.c_str());
+  return slot >= 0 && slot < int(g_snapshots.size()) ? slot : -2;
+}
+
+void MemSnap(std::string_view args) {
+  const std::vector<std::string> parts = SplitArgs(args);
+  const int slot = parts.empty() ? 0 : ParseSlot(parts[0]);
+  if (slot < 0) {
+    REXLOG_WARN("mem_snap: usage: mem_snap <slot 0-7>");
+    return;
+  }
+  auto& ranges = g_snapshots[size_t(slot)];
+  ranges.clear();
+  size_t total = 0;
+  ForEachWritableGuestRange([&](uint32_t address, const uint8_t* host, size_t size) {
+    ranges.push_back({address, std::vector<uint8_t>(host, host + size)});
+    total += size;
+  });
+  REXLOG_WARN("mem_snap: slot {}: {} ranges, {} MB", slot, ranges.size(), total >> 20);
+  rex::FlushLogging();
+}
+
+bool ParseWanted(const std::string& text, bool& any, uint32_t& value) {
+  any = text == "*";
+  value = any ? 0 : uint32_t(std::strtoul(text.c_str(), nullptr, 0));
+  return true;
+}
+
+void PrintCandidates(const char* what) {
+  REXLOG_WARN("{}: {} candidate(s)", what, g_candidates.size());
+  for (size_t i = 0; i < g_candidates.size() && i < 60; ++i) {
+    REXLOG_WARN("{}: {:08X}", what, g_candidates[i]);
+  }
+  rex::FlushLogging();
+}
+
+void MemDiff(std::string_view args) {
+  const std::vector<std::string> parts = SplitArgs(args);
+  if (parts.size() < 5) {
+    REXLOG_WARN("mem_diff: usage: mem_diff <slot a> <slot b> <size 1|2|4> <value a|*> <value b|*>");
+    return;
+  }
+  const int slot_a = ParseSlot(parts[0]), slot_b = ParseSlot(parts[1]);
+  const uint32_t size = uint32_t(std::strtoul(parts[2].c_str(), nullptr, 0));
+  bool any_a, any_b;
+  uint32_t want_a, want_b;
+  ParseWanted(parts[3], any_a, want_a);
+  ParseWanted(parts[4], any_b, want_b);
+  if (slot_a < 0 || slot_b < -1 || (size != 1 && size != 2 && size != 4)) {
+    REXLOG_WARN("mem_diff: bad slots or size");
+    return;
+  }
+  g_candidates.clear();
+  for (const SnapshotRange& range : g_snapshots[size_t(slot_a)]) {
+    for (size_t offset = 0; offset + size <= range.bytes.size(); offset += size) {
+      const uint32_t a = LoadValue(range.bytes.data() + offset, size);
+      if (!any_a && a != want_a) {
+        continue;
+      }
+      uint32_t b;
+      if (!SnapshotValue(slot_b, range.address + uint32_t(offset), size, b) || a == b ||
+          (!any_b && b != want_b)) {
+        continue;
+      }
+      g_candidates.push_back(range.address + uint32_t(offset));
+    }
+  }
+  PrintCandidates("mem_diff");
+}
+
+void MemNarrow(std::string_view args) {
+  const std::vector<std::string> parts = SplitArgs(args);
+  if (parts.size() < 3) {
+    REXLOG_WARN("mem_narrow: usage: mem_narrow <slot|now> <size 1|2|4> <value>");
+    return;
+  }
+  const int slot = ParseSlot(parts[0]);
+  const uint32_t size = uint32_t(std::strtoul(parts[1].c_str(), nullptr, 0));
+  const uint32_t want = uint32_t(std::strtoul(parts[2].c_str(), nullptr, 0));
+  std::vector<uint32_t> kept;
+  for (uint32_t address : g_candidates) {
+    uint32_t value;
+    if (slot >= -1 && SnapshotValue(slot, address, size, value) && value == want) {
+      kept.push_back(address);
+    }
+  }
+  g_candidates = std::move(kept);
+  PrintCandidates("mem_narrow");
+}
+
 }  // namespace
 
+REXCVAR_DEFINE_COMMAND_ARGS(pad_press, PadPress, "Debug",
+                            "Hold controller buttons for the game: <a|rb|lb+y...> [ms] [user]");
+REXCVAR_DEFINE_COMMAND_ARGS(mem_snap, MemSnap, "Debug", "Snapshot writable guest memory: <slot>");
+REXCVAR_DEFINE_COMMAND_ARGS(mem_diff, MemDiff, "Debug",
+                            "Values changed between snapshots: <a> <b> <size> <value a|*> "
+                            "<value b|*>");
+REXCVAR_DEFINE_COMMAND_ARGS(mem_narrow, MemNarrow, "Debug",
+                            "Keep mem_diff candidates with a value: <slot|now> <size> <value>");
+REXCVAR_DEFINE_COMMAND_ARGS(mem_save, MemSave, "Debug",
+                            "Save guest memory to a file: <hex address> <hex size> <file>");
 REXCVAR_DEFINE_COMMAND_ARGS(mem_find_words, MemFindWords, "Debug",
                             "Find big-endian 32-bit words (hex) in guest memory");
 REXCVAR_DEFINE_COMMAND_ARGS(mem_find_floats, MemFindFloats, "Debug",

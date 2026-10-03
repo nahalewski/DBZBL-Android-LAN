@@ -27,6 +27,9 @@ normal Windows program instead of inside an emulator.
 - **Cleaner image at high resolution**: the game's depth of field, glow blur and motion blur sample at fixed 720p
   distances, which leaves halos and ghost copies around the characters above 720p. They are off by default and
   can be turned back on (`depth_of_field`, `glow_blur`, `motion_blur`).
+- **Start transformed**: on the character select, **RB / LB** pick the form a character starts the match in
+  (Super Saiyan Goku, Final Form Frieza, Perfect Cell, ...), shown in a tag under its name with the form's face.
+  Works in Versus and Training; Z Chronicles battles keep their own forms.
 - **Free camera / photo mode** (`free_camera`): fly the camera anywhere, also while paused, hide the HUD, zoom
   and tilt.
 - **FPS panel** (F3): frame rate, frame time graph, render resolution and upscaler, in any corner.
@@ -192,6 +195,7 @@ settings menu (F1). Any setting can also be passed on the command line, e.g. `--
 - **F1** or **Back + Start**: settings menu (the buttons can be changed to L3 + R3 in the menu). **Y** in the
   menu turns the free camera on or off.
 - **F3**: FPS panel.
+- Character select: **RB / LB** change the start form (transformation), next to **Y** (Change Color).
 - Free camera: left stick moves, right stick looks, LB/RB down/up, LT/RT slower/faster, D-pad up/down zoom,
   D-pad left/right tilt, A hides the HUD, Y resets, B exits. Pause the game first for a photo mode.
 - Input only goes to the focused window.

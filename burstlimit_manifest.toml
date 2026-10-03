@@ -66,6 +66,27 @@ address = 0x822198F8
 name = "BurstLimitCameraFrame"
 registers = ["r30"]
 
+# --- Start transformed (src/burstlimit_forms.cpp) ---
+
+# Character select, sub_82249140: the screen's logic runs (r31 = its object).
+[[entrypoint.midasm_hook]]
+address = 0x82249174
+name = "BurstLimitCharSelectFrame"
+registers = ["r31"]
+
+# Where a side's cursor checks Y (Change Color): RB / LB change the start form.
+[[entrypoint.midasm_hook]]
+address = 0x8224A860
+name = "BurstLimitCharSelectButtons"
+registers = ["r19", "r30", "r31"]
+
+# Character loader sub_82181BB0, right before it reads the start form from the
+# match request entry (lhz r28,6(r20)) to load that form's model.
+[[entrypoint.midasm_hook]]
+address = 0x82181E24
+name = "BurstLimitStartFormLoad"
+registers = ["r20", "r24"]
+
 # --- Online (src/burstlimit_patches.cpp) ---
 
 # cmpwi cr6,r11,6 -> 2 while online_input_delay_test is on: resend unacked

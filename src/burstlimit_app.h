@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -11,6 +12,10 @@
 
 // burstlimit_patches.cpp
 void BurstLimitApplyPostEffectSettings();
+// burstlimit_forms.cpp
+std::unique_ptr<rex::ui::ImGuiDialog> BurstLimitCreateStartFormTags(
+    rex::ui::ImGuiDrawer* drawer, rex::ui::ImmediateDrawer* immediate_drawer,
+    const std::filesystem::path& game_data_root);
 
 class BurstlimitApp : public rex::ReXApp {
  public:
@@ -30,6 +35,13 @@ class BurstlimitApp : public rex::ReXApp {
     }
     BurstLimitApplyPostEffectSettings();
   }
+
+  // The start form tags of the character select (burstlimit_forms.cpp).
+  void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override {
+    start_form_tags_ = BurstLimitCreateStartFormTags(drawer, immediate_drawer(), game_data_root());
+  }
+
+  void OnShutdown() override { start_form_tags_.reset(); }
 
   // The settings menu (F1 or Back + Start on the controller).
   void OnConfigureQuickMenu(rex::ui::QuickMenuConfig& menu) override {
@@ -210,5 +222,7 @@ class BurstlimitApp : public rex::ReXApp {
       paths.game_data_root = local_game_root;
     }
   }
-};
 
+ private:
+  std::unique_ptr<rex::ui::ImGuiDialog> start_form_tags_;
+};
