@@ -10,6 +10,7 @@
 #include <rex/graphics/frame_pacing.h>
 #include <rex/memory.h>
 #include <rex/memory/utils.h>
+#include <rex/net/session.h>
 #include <rex/ppc/context.h>
 #include <rex/runtime.h>
 
@@ -98,9 +99,10 @@ constexpr uint64_t kSceneSpriteShaders[] = {0x4A56087EF49DF636};
 void ApplyFieldOfView() {
   // The field of view itself is applied where the game builds its projections
   // (BurstLimitSceneProjectionFov, BurstLimitProjectionFov), so the effects it
-  // places on the screen follow it. The GPU side only rolls the scene for the
-  // free camera: its depth-tested draws, the effects drawn after it without
-  // depth testing, and the sprites below.
+  // places on the screen follow it - offline. The GPU side rolls the scene for
+  // the free camera, and scales it for the field of view online: its
+  // depth-tested draws, the effects drawn after it without depth testing, and
+  // the sprites below.
   rex::graphics::SetSceneProjectionScale(1.0f);
   rex::graphics::SetSceneProjectionUndepthedTriangles(true);
 
@@ -263,12 +265,16 @@ void BurstLimit60FpsSkipTickGate(PPCCRRegister& cr6) {
 namespace {
 
 // field_of_view widens a projection matrix the game built: x and y over
-// tan(fov / 2), the first and sixth floats.
+// tan(fov / 2), the first and sixth floats. Not online: both consoles have to
+// simulate the same match, and the game's camera may use its projections - so
+// there the GPU widens the drawn scene instead, like before (effects the game
+// places on the screen itself are then a bit off).
 void WidenProjection(uint32_t matrix_address) {
   const int32_t percent = REXCVAR_GET(field_of_view);
   auto* runtime = rex::Runtime::instance();
   auto* memory = runtime ? runtime->memory() : nullptr;
-  if (percent == 100 || percent <= 0 || !matrix_address || !memory) {
+  if (percent == 100 || percent <= 0 || !matrix_address || !memory ||
+      rex::net::IsGameSessionOpen()) {
     return;
   }
   const float scale = 100.0f / float(percent);
@@ -290,6 +296,10 @@ void WidenProjection(uint32_t matrix_address) {
 //   (flares, speed lines, the screen areas they distort), after it wrote the
 //   matrix at r30.
 void BurstLimitSceneProjectionFov(PPCRegister& r4) {
+  // Every frame: online, the GPU scales the drawn scene (see WidenProjection).
+  const int32_t percent = REXCVAR_GET(field_of_view);
+  rex::graphics::SetSceneProjectionScale(
+      rex::net::IsGameSessionOpen() && percent > 0 ? 100.0f / float(percent) : 1.0f);
   WidenProjection(r4.u32);
 }
 
