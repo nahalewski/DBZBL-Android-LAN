@@ -57,6 +57,22 @@ address = 0x821DC428
 name = "BurstLimit60FpsSkipTickGate"
 registers = ["cr6"]
 
+# --- Field of view (src/burstlimit_patches.cpp) ---
+
+# sub_820E7058, the scene's projection: bl sub_820EDAC0 hands the matrix at r4
+# to the renderer.
+[[entrypoint.midasm_hook]]
+address = 0x820E7110
+name = "BurstLimitSceneProjectionFov"
+registers = ["r4"]
+
+# sub_82123FC0, the projection the effects use, after its last store to the
+# matrix at r30 (before the epilogue).
+[[entrypoint.midasm_hook]]
+address = 0x8212405C
+name = "BurstLimitProjectionFov"
+registers = ["r30"]
+
 # --- Free camera (src/burstlimit_camera.cpp) ---
 
 # Main loop (sub_822197D0) right after the frame's update - normal or paused -

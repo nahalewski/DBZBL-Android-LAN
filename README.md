@@ -23,7 +23,8 @@ normal Windows program instead of inside an emulator.
   a match and Training's "Reset Standing Position" above 30 FPS.
 - **Resolution and upscaling**: internal resolution up to 4K and beyond, changeable while playing; AMD FSR 1/2/3
   and CAS sharpening, FXAA, anisotropic filtering.
-- **Field of view** option (`field_of_view`, 50-200 %).
+- **Field of view** option (`field_of_view`, 50-200 %), applied where the game builds its projection, so
+  the effects it places on the screen (flares, speed lines, distortions) stay on the fighters.
 - **Cleaner image at high resolution**: the game's depth of field, glow blur and motion blur sample at fixed 720p
   distances, which leaves halos and ghost copies around the characters above 720p. They are off by default and
   can be turned back on (`depth_of_field`, `glow_blur`, `motion_blur`).

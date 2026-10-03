@@ -52,8 +52,7 @@ REXCVAR_DEFINE_BOOL(motion_blur, false, "Patches", "Directional blur during fast
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
 REXCVAR_DEFINE_INT32(field_of_view, 100, "Patches",
-                     "Field of view in percent of the game's (100 = original, 120 = 20% wider). "
-                     "What the game leaves out beyond its own view stays missing at the edges.")
+                     "Field of view in percent of the game's (100 = original, 120 = 20% wider).")
     .range(50, 200)
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
@@ -92,14 +91,18 @@ void ApplyPostEffectSettings() {
 }
 
 // Scene effects the game draws as screen-space sprites (W = 1) - they have to
-// be told to follow the field of view like the perspective geometry.
+// be told to follow the free camera's roll like the perspective geometry.
 // 4A56087EF49DF636: the ki aura.
 constexpr uint64_t kSceneSpriteShaders[] = {0x4A56087EF49DF636};
 
 void ApplyFieldOfView() {
-  // A wider view shrinks the projected scene: x / tan(fov / 2).
-  const int32_t percent = REXCVAR_GET(field_of_view);
-  rex::graphics::SetSceneProjectionScale(percent > 0 ? 100.0f / float(percent) : 1.0f);
+  // The field of view itself is applied where the game builds its projections
+  // (BurstLimitSceneProjectionFov, BurstLimitProjectionFov), so the effects it
+  // places on the screen follow it. The GPU side only rolls the scene for the
+  // free camera: its depth-tested draws, the effects drawn after it without
+  // depth testing, and the sprites below.
+  rex::graphics::SetSceneProjectionScale(1.0f);
+  rex::graphics::SetSceneProjectionUndepthedTriangles(true);
 
   std::vector<rex::graphics::PixelShaderDrawOverride> overrides;
   for (uint64_t shader : kSceneSpriteShaders) {
@@ -118,8 +121,6 @@ struct PostEffectCvarCallbacks {
       rex::cvar::RegisterChangeCallback(
           name, [](std::string_view, std::string_view) { ApplyPostEffectSettings(); });
     }
-    rex::cvar::RegisterChangeCallback(
-        "field_of_view", [](std::string_view, std::string_view) { ApplyFieldOfView(); });
   }
 };
 
@@ -257,6 +258,43 @@ void BurstLimit60FpsSkipTickGate(PPCCRRegister& cr6) {
   if (Is60FpsEnabled()) {
     cr6.eq = 0;
   }
+}
+
+namespace {
+
+// field_of_view widens a projection matrix the game built: x and y over
+// tan(fov / 2), the first and sixth floats.
+void WidenProjection(uint32_t matrix_address) {
+  const int32_t percent = REXCVAR_GET(field_of_view);
+  auto* runtime = rex::Runtime::instance();
+  auto* memory = runtime ? runtime->memory() : nullptr;
+  if (percent == 100 || percent <= 0 || !matrix_address || !memory) {
+    return;
+  }
+  const float scale = 100.0f / float(percent);
+  uint8_t* matrix = memory->TranslateVirtual<uint8_t*>(matrix_address);
+  for (uint32_t offset : {0u, 20u}) {
+    rex::memory::store_and_swap<float>(
+        matrix + offset, rex::memory::load_and_swap<float>(matrix + offset) * scale);
+  }
+}
+
+}  // namespace
+
+// The game builds its projections from the camera settings at 0x84140EE0
+// (FOV as an angle of 65536 per turn, aspect ratio, near, far) in two places,
+// both widened here so they keep matching:
+// - sub_820E7058, the scene's (right-handed) projection, every frame, right
+//   before it hands the matrix at r4 to the renderer (bl sub_820EDAC0);
+// - sub_82123FC0, the one the effects use to place themselves on the screen
+//   (flares, speed lines, the screen areas they distort), after it wrote the
+//   matrix at r30.
+void BurstLimitSceneProjectionFov(PPCRegister& r4) {
+  WidenProjection(r4.u32);
+}
+
+void BurstLimitProjectionFov(PPCRegister& r30) {
+  WidenProjection(r30.u32);
 }
 
 // li r4,3 before bl sub_82122310 in the online frame driver: task sleep ticks.
