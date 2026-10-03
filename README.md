@@ -49,6 +49,13 @@ Grab the latest **alpha** from the [Releases page](https://github.com/iExplosive
 
 Building from source (below) is only needed if you want to change the code.
 
+### Linux / Steam Deck
+Download `DBZ-Burst-Limit-Recompiled-*-linux.zip` instead: the same build with
+[vkd3d-proton](https://github.com/HansKristian-Work/vkd3d-proton) and [DXVK](https://github.com/doitsujin/dxvk)
+(Direct3D 12 to Vulkan) next to it and a `run_linux.sh` launcher for Wine. Put your game files in
+`game_data_root` and run `./run_linux.sh`. Steam / Proton works too: add `burstlimit.exe` as a non-Steam game
+and force Proton Experimental in its Compatibility settings.
+
 ---
 
 ## Requirements
@@ -248,6 +255,9 @@ Switch between the windows with Alt+Tab; the controller follows the focused wind
 - A wider field of view can show missing objects at the edges of the screen: the game doesn't draw what it
   doesn't expect to be seen.
 - FSR 2 and FSR 3 can leave trails behind moving characters, as the game has no motion vectors for them.
+- Linux has been tested through vkd3d-proton and DXVK (the translation Proton uses) on NVIDIA and AMD GPUs, but
+  not on a Linux machine yet. Wine's own Direct3D 12 (plain Wine without vkd3d-proton) isn't supported - use
+  the Linux zip or Proton.
 - The Xbox LIVE friends list and leaderboards are not implemented.
 - Running two copies on one PC (local online test) can drop frames on slower machines.
 
