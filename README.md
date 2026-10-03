@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="res/logo.png" alt="Dragon Ball Z: Burst Limit Recompiled" width="600">
+</p>
+
 # Dragon Ball Z: Burst Limit Recompiled
 
 A static recompilation of **Dragon Ball Z: Burst Limit** (Xbox 360) to native Windows x64, built on the
