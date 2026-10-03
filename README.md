@@ -30,7 +30,8 @@ normal Windows program instead of inside an emulator.
   can be turned back on (`depth_of_field`, `glow_blur`, `motion_blur`).
 - **Start transformed**: on the character select, **RB / LB** pick the form a character starts the match in
   (Super Saiyan Goku, Final Form Frieza, Perfect Cell, ...), shown in a tag under its name with the form's face.
-  Works in Versus and Training; Z Chronicles battles keep their own forms.
+  Works in Versus and Training; Z Chronicles battles keep their own forms. Offline only for now: online
+  matches keep the normal forms, as the other player's console wouldn't know the choice.
 - **Free camera / photo mode** (`free_camera`): fly the camera anywhere, also while paused, hide the HUD, zoom
   and tilt.
 - **FPS panel** (F3): frame rate, frame time graph, render resolution and upscaler, in any corner.

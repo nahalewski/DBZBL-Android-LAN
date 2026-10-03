@@ -3,6 +3,8 @@
 // the character select screen: RB / LB change it for the character under the
 // cursor, next to Y's "Change Color", and a tag under the name shows it with
 // the form's face (the battle HUD's, read from the game's archive).
+// Online matches are left alone: each side's choice would only be known on
+// its own console (the game doesn't send it), and the match would desync.
 //
 // The match request (address at 0x841B5138, filled by the character select or
 // a Z Chronicles battle) has an entry of 0x50 bytes per player:
@@ -42,6 +44,7 @@
 #include <rex/logging.h>
 #include <rex/memory.h>
 #include <rex/memory/utils.h>
+#include <rex/net/session.h>
 #include <rex/ppc/context.h>
 #include <rex/runtime.h>
 #include <rex/ui/imgui_dialog.h>
@@ -166,7 +169,7 @@ void BurstLimitCharSelectFrame(PPCRegister& r31) {
 void BurstLimitCharSelectButtons(PPCRegister& r19, PPCRegister& r30, PPCRegister& r31) {
   const uint32_t side = r30.u32;
   const uint32_t pressed = r19.u32;
-  if (side > 1 || !(pressed & (kButtonRB | kButtonLB))) {
+  if (side > 1 || !(pressed & (kButtonRB | kButtonLB)) || rex::net::IsGameSessionOpen()) {
     return;
   }
   auto* memory = GuestMemory();
@@ -196,8 +199,8 @@ void BurstLimitStartFormLoad(PPCRegister& r20, PPCRegister& r24) {
   uint8_t* entry = memory->TranslateVirtual<uint8_t*>(r20.u32);
   const uint16_t character = rex::memory::load_and_swap<uint16_t>(entry + kRequestCharacter);
   const uint32_t mode = LoadU32(memory, r20.u32 - player * kRequestStride + kRequestMode);
-  // Z Chronicles battles set their own forms.
-  if (mode == kModeZChronicles || character >= kCharacterCount) {
+  // Z Chronicles battles set their own forms; online matches stay as they are.
+  if (mode == kModeZChronicles || character >= kCharacterCount || rex::net::IsGameSessionOpen()) {
     return;
   }
   const int wanted = g_forms[player][character].load(std::memory_order_relaxed);
@@ -247,7 +250,8 @@ class StartFormTags : public rex::ui::ImGuiDialog {
 
  protected:
   void OnDraw(ImGuiIO& io) override {
-    if (NowMs() - g_select_seen_ms.load(std::memory_order_relaxed) > 150) {
+    if (NowMs() - g_select_seen_ms.load(std::memory_order_relaxed) > 150 ||
+        rex::net::IsGameSessionOpen()) {
       return;
     }
     auto* memory = GuestMemory();
