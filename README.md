@@ -11,6 +11,9 @@ The game's PowerPC code is translated ahead of time into C++ and compiled with C
 normal Windows program instead of inside an emulator.
 
 > **This repository contains no game data.** You need your own legally obtained copy of the game.
+>
+> **Only the US (NTSC-U) version of the game works.** The game code is translated ahead of time from the US
+> `default.xex`; other versions (European/PAL, Japanese) aren't supported. See [Which version](#which-version).
 
 ---
 
@@ -53,7 +56,8 @@ normal Windows program instead of inside an emulator.
 Grab the latest **alpha** from the [Releases page](https://github.com/iExplosiveRage/DBZ-Burst-Limit-Recompiled/releases):
 
 1. Download `DBZ-Burst-Limit-Recompiled-*.zip` and extract it anywhere.
-2. Copy your extracted game files into the `game_data_root` folder inside it (see [Game files](#game-files)).
+2. Copy your extracted game files (**US version**) into the `game_data_root` folder inside it (see
+   [Game files](#game-files)).
 3. Run `burstlimit.exe`.
 
 Building from source (below) is only needed if you want to change the code.
@@ -72,7 +76,8 @@ and force Proton Experimental in its Compatibility settings.
 ### To play
 - Windows 10/11 x64
 - A GPU with Direct3D 12 support
-- Your own copy of Dragon Ball Z: Burst Limit (Xbox 360), extracted to a folder (see [Game files](#game-files))
+- Your own copy of Dragon Ball Z: Burst Limit for Xbox 360, **US (NTSC-U) version**, extracted to a folder
+  (see [Game files](#game-files))
 
 ### To build
 | Tool | Version | Notes |
@@ -127,6 +132,21 @@ DBZ-Burst-Limit-Recompiled/
 
 `default.xex` is needed at **build time** (the recompiler reads it) and the whole folder is needed at
 **run time**.
+
+### Which version
+Only the **US (NTSC-U)** Xbox 360 version works. This project is built from this `default.xex`:
+
+| | |
+|---|---|
+| Region | NTSC-U (USA) |
+| Size | 7,983,104 bytes |
+| SHA-1 | `aec598f88cf51181fc377b148e0b1ad30db4485c` |
+
+To check yours: `certutil -hashfile default.xex SHA1` on Windows, `sha1sum default.xex` on Linux.
+
+With another version the game closes right after it opens, and its log (in the `logs` folder next to
+`burstlimit.exe`) shows `No function registered at ...`. The recompiled code only matches the US
+`default.xex`, so another version would need its own build.
 
 ---
 
