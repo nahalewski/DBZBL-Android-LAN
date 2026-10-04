@@ -57,6 +57,16 @@ address = 0x821DC428
 name = "BurstLimit60FpsSkipTickGate"
 registers = ["cr6"]
 
+# --- Play time (src/burstlimit_patches.cpp) ---
+
+# The play time counter adds a second every 60 presented frames, so it ran
+# fast above 60 FPS: real seconds instead (skips to RtlLeaveCriticalSection).
+[[entrypoint.midasm_hook]]
+address = 0x822192E8
+name = "BurstLimitPlayTime"
+registers = ["r31"]
+jump_address = 0x8221933C
+
 # --- Field of view (src/burstlimit_patches.cpp) ---
 
 # sub_820E7058, the scene's projection: bl sub_820EDAC0 hands the matrix at r4
@@ -75,12 +85,26 @@ registers = ["r30"]
 
 # --- Free camera (src/burstlimit_camera.cpp) ---
 
-# Main loop (sub_822197D0) right after the frame's update - normal or paused -
-# and before drawing. r30 is unused.
+# Main loop (sub_822197D0), once per game tick, right before the task
+# scheduler runs the update and drawing tasks (also applies the freeze). r30
+# is unused.
 [[entrypoint.midasm_hook]]
 address = 0x822198F8
 name = "BurstLimitCameraFrame"
 registers = ["r30"]
+
+# [SYS] PREDRAW (sub_8216CAF0): the render camera (r30, view index r31), after
+# the game copied its camera in charge into it, before the view is built.
+[[entrypoint.midasm_hook]]
+address = 0x8216CB94
+name = "BurstLimitCameraApply"
+registers = ["r30", "r31"]
+
+# [SYS] D_SEQ0 (sub_82128E40), two-camera branch: r3 = the main view's camera.
+[[entrypoint.midasm_hook]]
+address = 0x82128F30
+name = "BurstLimitDualCameraView"
+registers = ["r3"]
 
 # --- Start transformed (src/burstlimit_forms.cpp) ---
 

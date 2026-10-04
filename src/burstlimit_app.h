@@ -7,7 +7,9 @@
 #include <vector>
 #include <windows.h>
 
+#include <rex/cvar.h>
 #include <rex/rex_app.h>
+#include <rex/ui/keybinds.h>
 #include <rex/ui/overlay/quick_menu.h>
 
 // burstlimit_patches.cpp
@@ -36,12 +38,25 @@ class BurstlimitApp : public rex::ReXApp {
     BurstLimitApplyPostEffectSettings();
   }
 
-  // The start form tags of the character select (burstlimit_forms.cpp).
+  // The start form tags of the character select (burstlimit_forms.cpp), and
+  // the keyboard keys for the free camera (rebindable in the settings menu).
   void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override {
     start_form_tags_ = BurstLimitCreateStartFormTags(drawer, immediate_drawer(), game_data_root());
+    rex::ui::RegisterBind("bind_free_camera", "Insert", "Free camera on/off", [] {
+      rex::cvar::SetFlagByName(
+          "free_camera", rex::cvar::Query<bool>("free_camera") ? "false" : "true");
+    });
+    rex::ui::RegisterBind("bind_freeze_game", "Numpad0", "Freeze game on/off", [] {
+      rex::cvar::SetFlagByName(
+          "freeze_game", rex::cvar::Query<bool>("freeze_game") ? "false" : "true");
+    });
   }
 
-  void OnShutdown() override { start_form_tags_.reset(); }
+  void OnShutdown() override {
+    rex::ui::UnregisterBind("bind_free_camera");
+    rex::ui::UnregisterBind("bind_freeze_game");
+    start_form_tags_.reset();
+  }
 
   // The settings menu (F1 or Back + Start on the controller).
   void OnConfigureQuickMenu(rex::ui::QuickMenuConfig& menu) override {
@@ -61,6 +76,14 @@ class BurstlimitApp : public rex::ReXApp {
       item.label = std::move(label);
       item.cvar = std::move(cvar);
       item.choices = std::move(choices);
+      item.help = std::move(help);
+      return item;
+    };
+    auto key = [](std::string label, std::string cvar, std::string help) {
+      Item item;
+      item.kind = Item::Kind::kKey;
+      item.label = std::move(label);
+      item.cvar = std::move(cvar);
       item.help = std::move(help);
       return item;
     };
@@ -141,6 +164,11 @@ class BurstlimitApp : public rex::ReXApp {
         "Texture filtering", "anisotropic_override",
         {{"-1", "Game"}, {"1", "1x"}, {"2", "2x"}, {"3", "4x"}, {"4", "8x"}, {"5", "16x"}},
         "Keeps textures sharp when seen at an angle, like the floor."));
+    Item& texture_detail = graphics.items.emplace_back(
+        number("Texture detail", "texture_lod_bias", -2.0, 0.0, 0.25,
+               "Sharper textures on distant surfaces. NVIDIA recommends -1 with DLAA; without "
+               "DLAA, below -0.5 can shimmer."));
+    texture_detail.format = "%.2f";
     graphics.items.push_back(toggle(
         "Texture pack", "texture_replace_enabled",
         "HD textures from the textures\\replace folder next to burstlimit.exe."));
@@ -187,9 +215,19 @@ class BurstlimitApp : public rex::ReXApp {
     game.items.push_back(toggle("Vibration", "vibration", "Controller vibration."));
     game.items.push_back(toggle(
         "Free camera", "free_camera",
-        "Fly the camera (Y in this menu; pause first to freeze the action): left stick "
-        "moves, right stick looks, LB/RB down/up, LT/RT slower/faster, D-pad zoom and tilt, A "
-        "HUD, Y resets, B exits."));
+        "Fly the camera, also in cinematics (Y in this menu): left stick moves, right stick "
+        "looks, LB/RB down/up, LT/RT slower/faster, D-pad zoom and tilt, A HUD, X freeze, Y "
+        "resets, B exits."));
+    game.items.push_back(toggle(
+        "Freeze game", "freeze_game",
+        "Stops the fight and its cinematics - characters, effects, cutscenes - while the "
+        "picture stays, for the free camera. Offline only."));
+    game.items.push_back(key("Free camera key", "bind_free_camera",
+                             "Keyboard key that turns the free camera on and off. Press A or "
+                             "Enter, then the key to use."));
+    game.items.push_back(key("Freeze key", "bind_freeze_game",
+                             "Keyboard key that freezes and unfreezes the game. Press A or "
+                             "Enter, then the key to use."));
     menu.quick_toggle_label = "Free camera";
     menu.quick_toggle_cvar = "free_camera";
 

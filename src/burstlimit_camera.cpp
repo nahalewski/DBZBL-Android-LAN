@@ -20,14 +20,22 @@
 #include <rex/logging.h>
 #include <rex/memory.h>
 #include <rex/memory/utils.h>
+#include <rex/net/session.h>
 #include <rex/ppc/context.h>
 #include <rex/runtime.h>
 #include <rex/ui/overlay/quick_menu.h>
 
 REXCVAR_DEFINE_BOOL(free_camera, false, "Patches",
                     "Free camera for screenshots: left stick moves, right stick looks, LB/RB "
-                    "down/up, LT/RT slower/faster, D-pad up/down zoom, Y back to the game's "
-                    "view, B exits. The game doesn't get the controller meanwhile.")
+                    "down/up, LT/RT slower/faster, D-pad up/down zoom, X freezes the game, Y "
+                    "back to the game's view, B exits. The game doesn't get the controller "
+                    "meanwhile. Works in cinematics too.")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+
+REXCVAR_DEFINE_BOOL(freeze_game, false, "Patches",
+                    "Freezes the fight and its cinematics (characters, effects, cutscene "
+                    "timelines) while the game keeps drawing, for the free camera. X in the "
+                    "free camera toggles it. Offline only.")
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
 namespace {
@@ -39,13 +47,33 @@ namespace {
 // wants at +0x10 and +0x20 of the manager, and sub_8216E850 eases the active
 // camera toward them every frame.
 constexpr uint32_t kManagerPointer = 0x841B2B10;
-constexpr uint32_t kManagerEye = 0x10;
-constexpr uint32_t kManagerTarget = 0x20;
-constexpr uint32_t kActiveCamera = 0x150;
+// The game renders from its own copy of whichever camera is in charge - the
+// battle camera, a cinematic's animated one or a bone camera: the [SYS]
+// PREDRAW task (sub_8216CAF0) copies the latched source camera *(M+0x2D8)
+// into the render camera *(M+0x2E0) and builds the view from it. The free
+// camera writes the render camera right there (BurstLimitCameraApply), so it
+// works in cinematics too.
+constexpr uint32_t kManagerSourceCamera = 0x2D8;
+constexpr uint32_t kManagerRenderCamera = 0x2E0;
 constexpr uint32_t kCameraEye = 0x00;
 constexpr uint32_t kCameraTarget = 0x10;
+constexpr uint32_t kCameraRoll = 0x30;
 constexpr uint32_t kCameraFov = 0x34;
 constexpr uint32_t kCameraFlags = 0x38;
+
+// The battle object ([0x841B5130] -> 0x841B5140) runs the fight's clock in
+// the [SYS] MAIN task (sub_82178410): with bit 0x80000000 of its flags at
+// +260 - part of the stop mask, and never set by the game - the clock, the
+// characters, effects, cutscene scripts and super-attack timelines stop,
+// while the drawing tasks and the camera's view keep running.
+constexpr uint32_t kBattlePointer = 0x841B5130;
+constexpr uint32_t kBattleStep = 252;
+constexpr uint32_t kBattleStepRequest = 256;
+constexpr uint32_t kBattleFlags = 260;
+constexpr uint32_t kBattleFlagFreeze = 0x80000000u;
+// Effect step and step / 60, only written by the clock (sub_82110A80).
+constexpr uint32_t kEffectStep = 0x840D62C0;
+constexpr uint32_t kEffectStepSeconds = 0x840D6AC8;
 
 // X_INPUT_GAMEPAD_* bits.
 constexpr uint16_t kPadUp = 0x0001;
@@ -56,6 +84,7 @@ constexpr uint16_t kPadLeftShoulder = 0x0100;
 constexpr uint16_t kPadRightShoulder = 0x0200;
 constexpr uint16_t kPadA = 0x1000;
 constexpr uint16_t kPadB = 0x2000;
+constexpr uint16_t kPadX = 0x4000;
 constexpr uint16_t kPadY = 0x8000;
 
 struct Vec3 {
@@ -137,8 +166,58 @@ struct FreeCamera {
   float pitch = 0.0f;  // Positive looks up.
   float roll = 0.0f;   // Turns the picture (the GPU does it).
   float fov = 0.6f;
+  // What BurstLimitCameraApply writes into the render camera.
+  Vec3 eye;
+  Vec3 target;
   std::chrono::steady_clock::time_point last_update;
 } g_free_camera;
+
+// Game thread only. The battle object the freeze bit was set in (0 = none).
+uint32_t g_frozen_battle = 0;
+
+void Unfreeze(rex::memory::Memory* memory) {
+  if (!g_frozen_battle) {
+    return;
+  }
+  uint8_t* battle = memory->TranslateVirtual<uint8_t*>(g_frozen_battle);
+  rex::memory::store_and_swap<uint32_t>(
+      battle + kBattleFlags,
+      rex::memory::load_and_swap<uint32_t>(battle + kBattleFlags) & ~kBattleFlagFreeze);
+  rex::memory::store_and_swap<float>(battle + kBattleStep, 1.0f);
+  rex::memory::store_and_swap<float>(battle + kBattleStepRequest, 1.0f);
+  rex::memory::store_and_swap<float>(memory->TranslateVirtual<uint8_t*>(kEffectStep), 1.0f);
+  rex::memory::store_and_swap<float>(memory->TranslateVirtual<uint8_t*>(kEffectStepSeconds),
+                                     1.0f / 60.0f);
+  g_frozen_battle = 0;
+}
+
+// Every tick, before the game's tasks run: keeps the fight stopped while
+// freeze_game is on (re-applied each tick, so the game's own pause opening or
+// closing can't drop it), and lets it go otherwise.
+void ApplyFreeze(rex::memory::Memory* memory) {
+  const uint32_t battle_address =
+      rex::memory::load_and_swap<uint32_t>(memory->TranslateVirtual<uint8_t*>(kBattlePointer));
+  const bool online = rex::net::IsGameSessionOpen();
+  if (!REXCVAR_GET(freeze_game) || online || !battle_address) {
+    Unfreeze(memory);
+    if (REXCVAR_GET(freeze_game) && (online || !battle_address)) {
+      // Nothing to freeze (or not allowed): don't stay armed for later.
+      rex::cvar::SetFlagByName("freeze_game", "false");
+    }
+    return;
+  }
+  if (g_frozen_battle && g_frozen_battle != battle_address) {
+    Unfreeze(memory);
+  }
+  g_frozen_battle = battle_address;
+  uint8_t* battle = memory->TranslateVirtual<uint8_t*>(battle_address);
+  rex::memory::store_and_swap<uint32_t>(
+      battle + kBattleFlags,
+      rex::memory::load_and_swap<uint32_t>(battle + kBattleFlags) | kBattleFlagFreeze);
+  rex::memory::store_and_swap<float>(battle + kBattleStep, 0.0f);
+  rex::memory::store_and_swap<float>(memory->TranslateVirtual<uint8_t*>(kEffectStep), 0.0f);
+  rex::memory::store_and_swap<float>(memory->TranslateVirtual<uint8_t*>(kEffectStepSeconds), 0.0f);
+}
 
 Vec3 Forward(float yaw, float pitch) {
   return {std::sin(yaw) * std::cos(pitch), std::sin(pitch), -std::cos(yaw) * std::cos(pitch)};
@@ -173,11 +252,17 @@ void StopFreeCamera() {
 
 }  // namespace
 
-// Mid-asm hook in the main loop (sub_822197D0, 0x822198F8), right after the
-// frame's update - the normal one, which moves the game's camera, or the
-// paused one - and before the scene is drawn.
+// Mid-asm hook in the main loop (sub_822197D0, 0x822198F8), once per game
+// tick, right before the task scheduler runs the frame's update and drawing
+// tasks (0x8221993C). Also where the freeze is applied.
 void BurstLimitCameraFrame(PPCRegister& r30) {
   (void)r30;
+  auto* runtime = rex::Runtime::instance();
+  auto* memory = runtime ? runtime->memory() : nullptr;
+  if (!memory) {
+    return;
+  }
+  ApplyFreeze(memory);
   FreeCamera& camera = g_free_camera;
   if (!REXCVAR_GET(free_camera)) {
     if (camera.active) {
@@ -185,10 +270,8 @@ void BurstLimitCameraFrame(PPCRegister& r30) {
     }
     return;
   }
-  auto* runtime = rex::Runtime::instance();
-  auto* memory = runtime ? runtime->memory() : nullptr;
   auto* input = GetInputSystem();
-  if (!memory || !input) {
+  if (!input) {
     return;
   }
   const uint32_t manager_address =
@@ -197,13 +280,18 @@ void BurstLimitCameraFrame(PPCRegister& r30) {
     return;
   }
   uint8_t* manager = memory->TranslateVirtual<uint8_t*>(manager_address);
-  uint8_t* active = manager + kActiveCamera;
+  const uint32_t render_camera_address =
+      rex::memory::load_and_swap<uint32_t>(manager + kManagerRenderCamera);
+  if (!render_camera_address) {
+    return;
+  }
+  uint8_t* render_camera = memory->TranslateVirtual<uint8_t*>(render_camera_address);
 
   const auto now = std::chrono::steady_clock::now();
   if (!camera.active) {
-    // Start where the game's camera is.
-    AimFreeCamera(ReadVec3(active + kCameraEye), ReadVec3(active + kCameraTarget));
-    camera.fov = rex::memory::load_and_swap<float>(active + kCameraFov);
+    // Start where the game's camera is - the last view it rendered.
+    AimFreeCamera(ReadVec3(render_camera + kCameraEye), ReadVec3(render_camera + kCameraTarget));
+    camera.fov = rex::memory::load_and_swap<float>(render_camera + kCameraFov);
     camera.active = true;
     camera.show_hud = false;
     rex::graphics::SetHideHudDraws(true);
@@ -242,8 +330,16 @@ void BurstLimitCameraFrame(PPCRegister& r30) {
     return;
   }
   if (pressed & kPadY) {
-    AimFreeCamera(ReadVec3(manager + kManagerEye), ReadVec3(manager + kManagerTarget));
+    // Back to the camera the game has in charge (battle or cinematic).
+    const uint32_t source_address =
+        rex::memory::load_and_swap<uint32_t>(manager + kManagerSourceCamera);
+    uint8_t* source = source_address ? memory->TranslateVirtual<uint8_t*>(source_address)
+                                     : render_camera;
+    AimFreeCamera(ReadVec3(source + kCameraEye), ReadVec3(source + kCameraTarget));
     camera.roll = 0.0f;
+  }
+  if (pressed & kPadX) {
+    rex::cvar::SetFlagByName("freeze_game", REXCVAR_GET(freeze_game) ? "false" : "true");
   }
 
   // Roll.
@@ -293,13 +389,61 @@ void BurstLimitCameraFrame(PPCRegister& r30) {
   }
   camera.fov = std::clamp(camera.fov, 0.1f, 1.6f);
 
-  const Vec3 target{camera.position.x + forward.x * 10.0f, camera.position.y + forward.y * 10.0f,
-                    camera.position.z + forward.z * 10.0f};
-  WriteVec3(active + kCameraEye, camera.position);
-  WriteVec3(active + kCameraTarget, target);
-  rex::memory::store_and_swap<float>(active + kCameraFov, camera.fov);
+  // Written into the render camera by BurstLimitCameraApply later this tick.
+  camera.eye = camera.position;
+  camera.target = {camera.position.x + forward.x * 10.0f, camera.position.y + forward.y * 10.0f,
+                   camera.position.z + forward.z * 10.0f};
+}
+
+// Mid-asm hook in the [SYS] PREDRAW task (sub_8216CAF0, 0x8216CB94), after the
+// game has copied its camera in charge into the render camera (r30, view r31)
+// and before it builds the view from it: the free camera replaces it there,
+// so it works for the battle camera, cinematics and bone cameras alike, and
+// effects and billboards follow it.
+void BurstLimitCameraApply(PPCRegister& r30, PPCRegister& r31) {
+  const FreeCamera& camera = g_free_camera;
+  if (!camera.active || r31.u32 != 0 || !r30.u32) {
+    return;
+  }
+  auto* runtime = rex::Runtime::instance();
+  auto* memory = runtime ? runtime->memory() : nullptr;
+  if (!memory) {
+    return;
+  }
+  uint8_t* render_camera = memory->TranslateVirtual<uint8_t*>(r30.u32);
+  WriteVec3(render_camera + kCameraEye, camera.eye);
+  WriteVec3(render_camera + kCameraTarget, camera.target);
+  // The free camera's roll is done on the GPU; drop a cinematic's own.
+  rex::memory::store_and_swap<float>(render_camera + kCameraRoll, 0.0f);
+  rex::memory::store_and_swap<float>(render_camera + kCameraFov, camera.fov);
+  // Changed: the game rebuilds the orientation from eye and target.
   rex::memory::store_and_swap<uint32_t>(
-      active + kCameraFlags, rex::memory::load_and_swap<uint32_t>(active + kCameraFlags) | 1u);
+      render_camera + kCameraFlags,
+      rex::memory::load_and_swap<uint32_t>(render_camera + kCameraFlags) | 1u);
+}
+
+// Mid-asm hook in the [SYS] D_SEQ0 task (sub_82128E40, 0x82128F30): in its
+// two-camera branch (split views), r3 is the camera the main view is drawn
+// from - the render camera of view 0 while the free camera is on.
+void BurstLimitDualCameraView(PPCRegister& r3) {
+  if (!g_free_camera.active) {
+    return;
+  }
+  auto* runtime = rex::Runtime::instance();
+  auto* memory = runtime ? runtime->memory() : nullptr;
+  if (!memory) {
+    return;
+  }
+  const uint32_t manager_address =
+      rex::memory::load_and_swap<uint32_t>(memory->TranslateVirtual<uint8_t*>(kManagerPointer));
+  if (!manager_address) {
+    return;
+  }
+  const uint32_t render_camera = rex::memory::load_and_swap<uint32_t>(
+      memory->TranslateVirtual<uint8_t*>(manager_address) + kManagerRenderCamera);
+  if (render_camera) {
+    r3.u64 = render_camera;
+  }
 }
 
 namespace {

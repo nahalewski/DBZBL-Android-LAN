@@ -1,4 +1,6 @@
+#include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <mutex>
 #include <string>
@@ -235,6 +237,7 @@ void BurstLimitApplyPostEffectSettings() {
   ApplyFieldOfView();
   // The free camera takes the controller away, never start in it.
   rex::cvar::SetFlagByName("free_camera", "false");
+  rex::cvar::SetFlagByName("freeze_game", "false");
   // Configs from before the frame_rate option keep what they had.
   if (REXCVAR_GET(frame_rate).empty()) {
     const char* rate = "30";
@@ -323,4 +326,45 @@ void BurstLimitOnlineInputDelay(PPCRegister& r11, PPCCRRegister& cr6) {
     cr6.gt = value > 2;
     cr6.eq = value == 2;
   }
+}
+
+// The play time (Options > Status). The game counts the frames it presents
+// and adds a second every <refresh rate> frames (60), so above 60 FPS
+// (frame_rate) the play time ran 2-4x too fast. Mid-asm hook at 0x822192E8,
+// inside the counter's critical section (r31 + 1512 points to the counters:
+// +8 frames, +12 seconds, capped at 999:59:59), jumping to its end
+// (0x8221933C): real seconds instead.
+void BurstLimitPlayTime(PPCRegister& r31) {
+  static std::chrono::steady_clock::time_point last{};
+  static double pending = 0.0;
+  const auto now = std::chrono::steady_clock::now();
+  if (last != std::chrono::steady_clock::time_point{}) {
+    // A long gap (the window was dragged, a breakpoint) counts as one second
+    // at most, like the frames the game would have missed.
+    pending += std::min(std::chrono::duration<double>(now - last).count(), 1.0);
+  }
+  last = now;
+  if (pending < 1.0) {
+    return;
+  }
+  auto* runtime = rex::Runtime::instance();
+  auto* memory = runtime ? runtime->memory() : nullptr;
+  if (!memory) {
+    return;
+  }
+  const uint32_t counters =
+      rex::memory::load_and_swap<uint32_t>(memory->TranslateVirtual<uint8_t*>(r31.u32 + 1512));
+  if (!counters) {
+    return;
+  }
+  constexpr uint32_t kMaxSeconds = 999 * 3600 + 59 * 60 + 59;
+  uint8_t* seconds = memory->TranslateVirtual<uint8_t*>(counters + 12);
+  uint32_t value = rex::memory::load_and_swap<uint32_t>(seconds);
+  while (pending >= 1.0) {
+    pending -= 1.0;
+    if (value < kMaxSeconds) {
+      ++value;
+    }
+  }
+  rex::memory::store_and_swap<uint32_t>(seconds, value);
 }
