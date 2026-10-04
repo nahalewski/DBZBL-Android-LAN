@@ -25,7 +25,11 @@ normal Windows program instead of inside an emulator.
 - **Frame rate cap** (`frame_rate`): 30 (the original), 60, 120, 144 or unlocked, with fixes for pause, quitting
   a match and Training's "Reset Standing Position" above 30 FPS.
 - **Resolution and upscaling**: internal resolution up to 4K and beyond, changeable while playing; AMD FSR 1/2/3
-  and CAS sharpening, FXAA, anisotropic filtering.
+  and CAS sharpening, FXAA, anisotropic filtering, and a **Texture detail** option (`texture_lod_bias`) for
+  sharper textures in the distance.
+- **NVIDIA DLAA (experimental)** (`dlss_mode`, `dlss_preset`): NVIDIA's AI anti-aliasing on RTX GPUs, applied to
+  the 3D scene before the HUD, with the jitter and camera motion vectors it needs reconstructed from the game's
+  draws. A first version: fast moves can leave a faint trail.
 - **Field of view** option (`field_of_view`, 50-200 %), applied where the game builds its projection, so
   the effects it places on the screen (flares, speed lines, distortions) stay on the fighters.
 - **Cleaner image at high resolution**: the game's depth of field, glow blur and motion blur sample at fixed 720p
@@ -35,8 +39,9 @@ normal Windows program instead of inside an emulator.
   (Super Saiyan Goku, Final Form Frieza, Perfect Cell, ...), shown in a tag under its name with the form's face.
   Works in Versus and Training; Z Chronicles battles keep their own forms. Offline only for now: online
   matches keep the normal forms, as the other player's console wouldn't know the choice.
-- **Free camera / photo mode** (`free_camera`): fly the camera anywhere, also while paused, hide the HUD, zoom
-  and tilt.
+- **Free camera / photo mode** (`free_camera`): fly the camera anywhere - also in cinematics and super attacks -
+  hide the HUD, zoom and tilt. **Freeze game** (`freeze_game`) stops the fight and its cutscenes while you move
+  around (offline only). Keyboard: **Insert** and **Numpad 0**, both rebindable in the settings menu.
 - **FPS panel** (F3): frame rate, frame time graph, render resolution and upscaler, in any corner.
 - **Online play over LAN / Radmin VPN**: Xbox LIVE sign-in, session create/search/join and player matches,
   emulated on top of plain UDP.
@@ -46,7 +51,10 @@ normal Windows program instead of inside an emulator.
   over the internet.
 - **Texture dumping / replacement** (`texture_dump_enabled`, `texture_replace_enabled`): put a texture pack in
   `textures\replace` and turn on **Texture pack** in the settings menu. Replacements get mipmaps and are decoded
-  in the background at startup, so they don't stutter the game when first used.
+  in the background at startup, so they don't stutter the game when first used; packs bigger than
+  `texture_replace_ram_mb` load as they're used instead, and the least recently used ones leave RAM.
+- **Play time fix**: the game counts play time in presented frames, so above 60 FPS it ran fast; it counts real
+  time now.
 - Optional **Discord Rich Presence**.
 
 ---
@@ -189,6 +197,12 @@ cmake --preset win-amd64-relwithdebinfo -DREXGLUE_ENABLE_FIDELITYFX=ON
 
 The build copies `amd_fidelityfx_dx12.dll` next to `burstlimit.exe`; keep it there.
 
+### Optional: NVIDIA DLSS (DLAA)
+Configure with `-DREXGLUE_ENABLE_DLSS=ON`. The build downloads the DLSS SDK files it needs (header, library and
+`nvngx_dlss.dll`, checked against pinned SHA-256 hashes), or uses a local copy given with
+`-DREXGLUE_DLSS_SDK_DIR=C:/path/to/dlss_sdk`. It copies `nvngx_dlss.dll` next to `burstlimit.exe`; keep it there.
+The DLSS SDK is under NVIDIA's own license (RTX SDKs), not this project's.
+
 ### Optional: Discord Rich Presence
 Download the Discord Social SDK and configure with:
 
@@ -218,8 +232,10 @@ settings menu (F1). Any setting can also be passed on the command line, e.g. `--
   menu turns the free camera on or off.
 - **F3**: FPS panel.
 - Character select: **RB / LB** change the start form (transformation), next to **Y** (Change Color).
+- **Insert**: free camera on / off. **Numpad 0**: freeze the game. Both keys can be changed in the settings
+  menu (Game).
 - Free camera: left stick moves, right stick looks, LB/RB down/up, LT/RT slower/faster, D-pad up/down zoom,
-  D-pad left/right tilt, A hides the HUD, Y resets, B exits. Pause the game first for a photo mode.
+  D-pad left/right tilt, A hides the HUD, X freezes the game, Y resets, B exits.
 - Input only goes to the focused window.
 
 ---
@@ -237,6 +253,11 @@ settings menu (F1). Any setting can also be passed on the command line, e.g. `--
 | `glow_blur` | `false` | Soft glow blur (leaves a halo around the characters at high resolution). |
 | `motion_blur` | `false` | Directional blur during fast moves. |
 | `free_camera` | `false` | Free camera (always off at startup). |
+| `freeze_game` | `false` | Stops the fight and its cinematics for the free camera, offline only (always off at startup). |
+| `bind_free_camera` / `bind_freeze_game` | `Insert` / `Numpad0` | Keyboard keys for the free camera and freeze. |
+| `dlss_mode` | `off` | `dlaa` = NVIDIA DLAA (RTX GPUs, experimental). |
+| `dlss_preset` | `m` | DLSS model: `k`, `l` or `m`. |
+| `texture_lod_bias` | `0` | Texture detail: negative = sharper distant textures (-1 is NVIDIA's advice with DLAA). |
 | `quick_menu_buttons` | `back+start` | Controller buttons for the settings menu: `back+start`, `l3+r3` or `none` (F1 always works). |
 | `debug_overlay` | `false` | FPS panel (F3). |
 | `debug_overlay_position` | `top-left` | `top-left`, `top-right`, `bottom-left` or `bottom-right`. |
@@ -247,7 +268,8 @@ settings menu (F1). Any setting can also be passed on the command line, e.g. `--
 | `vsync` | `true` | Older frame rate setting, only used while `frame_rate` is empty (`false` = unlocked). |
 | `texture_dump_enabled` | `false` | Dump textures to `textures/dump`. |
 | `texture_replace_enabled` | `false` | Load replacements from `textures/replace` (next to the exe). |
-| `texture_replace_preload` | `true` | Decode all the replacements in the background at startup, so they don't stutter the game when first used (keeps them in RAM). |
+| `texture_replace_preload` | `true` | Decode all the replacements in the background at startup, so they don't stutter the game when first used (keeps them in RAM; skipped for packs bigger than `texture_replace_ram_mb`). |
+| `texture_replace_ram_mb` | `3072` | RAM for decoded replacements; past it the least recently used ones are dropped. |
 | `texture_folder` | *(exe folder)/textures* | Override the textures folder. |
 | `log_level` | `info` | `debug` / `info` / `warning` / `error`. |
 
@@ -285,6 +307,8 @@ Switch between the windows with Alt+Tab; the controller follows the focused wind
 - A wider field of view can show missing objects at the edges of the screen: the game doesn't draw what it
   doesn't expect to be seen.
 - FSR 2 and FSR 3 can leave trails behind moving characters, as the game has no motion vectors for them.
+- NVIDIA DLAA is experimental: its motion vectors only follow the camera, so very fast moves can leave a faint
+  trail. It needs an NVIDIA RTX GPU (on others the option does nothing).
 - Linux has been tested through vkd3d-proton and DXVK (the translation Proton uses) on NVIDIA and AMD GPUs, but
   not on a Linux machine yet. Wine's own Direct3D 12 (plain Wine without vkd3d-proton) isn't supported - use
   the Linux zip or Proton.
@@ -315,6 +339,9 @@ generated code (it is regenerated on every build).
 
 - [ReXGlue SDK](https://github.com/rexglue/rexglue-sdk) - the recompiler and runtime this project is built on.
 - [Xenia](https://github.com/xenia-project/xenia) - the Xbox 360 emulator whose kernel and GPU work ReXGlue builds on.
+- NVIDIA DLSS (DLAA), under the NVIDIA RTX SDKs license. NVIDIA, GeForce RTX and DLSS are trademarks of NVIDIA
+  Corporation; this project is not affiliated with or endorsed by NVIDIA.
+- AMD FidelityFX (FSR).
 - Dragon Ball Z: Burst Limit © Bird Studio/Shueisha, Toei Animation. Published by Bandai Namco Games.
 
 ## Disclaimer
