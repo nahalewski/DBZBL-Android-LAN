@@ -22,6 +22,7 @@ set(BURSTLIMIT_SOURCES
     src/burstlimit_cpk.cpp
     src/burstlimit_forms.cpp
     src/burstlimit_patches.cpp
+    src/burstlimit_stages.cpp
 )
 
 # Optional Discord Rich Presence. Download the Discord Social SDK and point

@@ -54,6 +54,11 @@ REXCVAR_DEFINE_BOOL(glow_blur, false, "Patches",
 REXCVAR_DEFINE_BOOL(motion_blur, false, "Patches", "Directional blur during fast moves.")
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
+REXCVAR_DEFINE_BOOL(soft_filter, false, "Patches",
+                    "The game's soft filter over the whole picture (a 4-tap average sized for "
+                    "720p - above it, it blurs the picture a lot).")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+
 REXCVAR_DEFINE_INT32(field_of_view, 100, "Patches",
                      "Field of view in percent of the game's (100 = original, 120 = 20% wider).")
     .range(50, 200)
@@ -72,6 +77,11 @@ constexpr uint64_t kDepthOfFieldCompositeShader = 0xA71B2D3254A81E3C;
 constexpr uint64_t kGlowBlurShader = 0x97906B6915CE1A5E;
 // 17-tap directional blur with a depth mask.
 constexpr uint64_t kMotionBlurShaders[] = {0x1D256B3F80DB44A7, 0xD74A5DAE8A193E23};
+// The last full-screen pass before the HUD: the frame, copied, drawn back as
+// the average of 4 taps half a 720p pixel apart - a soft filter at 720p that
+// blurs over several pixels at higher resolutions. Skipped, the frame stays
+// as it was.
+constexpr uint64_t kSoftFilterShader = 0x04FCB369A8343665;
 
 void ApplyPostEffectSettings() {
   std::vector<rex::graphics::PixelShaderDrawOverride> overrides;
@@ -89,6 +99,9 @@ void ApplyPostEffectSettings() {
     for (uint64_t shader : kMotionBlurShaders) {
       overrides.push_back({shader, true, {}});
     }
+  }
+  if (!REXCVAR_GET(soft_filter)) {
+    overrides.push_back({kSoftFilterShader, true, {}});
   }
   rex::graphics::SetPixelShaderDrawOverrides("burstlimit_post_effects", std::move(overrides));
 }
@@ -121,7 +134,7 @@ struct PostEffectCvarCallbacks {
   PostEffectCvarCallbacks() {
     ApplyPostEffectSettings();
     ApplyFieldOfView();
-    for (const char* name : {"depth_of_field", "glow_blur", "motion_blur"}) {
+    for (const char* name : {"depth_of_field", "glow_blur", "motion_blur", "soft_filter"}) {
       rex::cvar::RegisterChangeCallback(
           name, [](std::string_view, std::string_view) { ApplyPostEffectSettings(); });
     }
@@ -255,6 +268,16 @@ void BurstLimitApplyPostEffectSettings() {
 void BurstLimit60FpsForceCap(PPCRegister& r3) {
   if (Is60FpsEnabled()) {
     r3.u64 = 1;
+  }
+}
+
+// rlwinm r11 = battle+574 & 2 (a cutscene is playing) before the rounding of
+// the cutscene motion / camera time to whole frames: above 30 FPS the time is
+// sampled as it is, so poses change every tick instead of every other one.
+// Off online (the poses aren't shown to be local only).
+void BurstLimitDramaSmoothMotion(PPCRegister& r11) {
+  if (g_interval_one.load(std::memory_order_relaxed) && !rex::net::IsGameSessionOpen()) {
+    r11.u64 = 0;
   }
 }
 

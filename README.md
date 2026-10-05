@@ -27,21 +27,37 @@ normal Windows program instead of inside an emulator.
 - **Resolution and upscaling**: internal resolution up to 4K and beyond, changeable while playing; AMD FSR 1/2/3
   and CAS sharpening, FXAA, anisotropic filtering, and a **Texture detail** option (`texture_lod_bias`) for
   sharper textures in the distance.
-- **NVIDIA DLAA (experimental)** (`dlss_mode`, `dlss_preset`): NVIDIA's AI anti-aliasing on RTX GPUs, applied to
-  the 3D scene before the HUD, with the jitter and camera motion vectors it needs reconstructed from the game's
-  draws. A first version: fast moves can leave a faint trail.
+- **NVIDIA DLSS and DLAA (experimental)** (`dlss_mode`, `dlss_preset`): NVIDIA's AI anti-aliasing and upscaling
+  on RTX GPUs, applied to the 3D scene before the HUD, with the jitter and camera motion vectors it needs
+  reconstructed from the game's draws. **DLAA** keeps the chosen resolution; **Quality**, **Balanced**,
+  **Performance** and **Ultra Performance** render the scene lower and upscale it, for more FPS, while the HUD
+  is still drawn at the full resolution. Fast moves can leave a faint trail.
+- **Sharper picture** (`soft_filter`): the game's last pass blurs the whole picture slightly (a soft look made
+  for 720p). Above 720p it took away much of the resolution's sharpness, so it's off by default now; turn it
+  back on in Settings > Effects > Soft filter.
 - **Field of view** option (`field_of_view`, 50-200 %), applied where the game builds its projection, so
   the effects it places on the screen (flares, speed lines, distortions) stay on the fighters.
 - **Cleaner image at high resolution**: the game's depth of field, glow blur and motion blur sample at fixed 720p
   distances, which leaves halos and ghost copies around the characters above 720p. They are off by default and
   can be turned back on (`depth_of_field`, `glow_blur`, `motion_blur`).
+- **Smooth cutscenes**: the story's cutscenes moved the characters and the camera at 30 FPS even with the game
+  at 60. At a frame rate of 60 or more they now move at the full 60.
+- **Four hidden costumes** (`story_costumes`): costumes the game only uses in Z Chronicles, now on the character
+  select with **Y** (Change Color): Goku battle-damaged (from the fight with Frieza) and Goku as Ginyu (green
+  scouter), Kid Gohan in his Raditz-saga outfit, and Teen Gohan battle-damaged (Cell Games), with all their
+  transformations.
+- **Three new stages** (`extra_stages`): **Dying Namek**, **Wasteland** and **Seaside Cliffs**, stages the game
+  only uses in Z Chronicles, are added to the stage select of Versus and Training, with their own pictures,
+  and RANDOM can pick them too. Offline only: online matches keep the original list.
 - **Start transformed**: on the character select, **RB / LB** pick the form a character starts the match in
   (Super Saiyan Goku, Final Form Frieza, Perfect Cell, ...), shown in a tag under its name with the form's face.
   Works in Versus and Training; Z Chronicles battles keep their own forms. Offline only for now: online
   matches keep the normal forms, as the other player's console wouldn't know the choice.
 - **Free camera / photo mode** (`free_camera`): fly the camera anywhere - also in cinematics and super attacks -
   hide the HUD, zoom and tilt. **Freeze game** (`freeze_game`) stops the fight and its cutscenes while you move
-  around (offline only). Keyboard: **Insert** and **Numpad 0**, both rebindable in the settings menu.
+  around (offline only). Keyboard: **Insert** and **Numpad 0**, both rebindable in the settings menu. For
+  repeatable shots, the console commands `free_camera_where` (logs the current camera as a command) and
+  `free_camera_pose <x> <y> <z> <yaw> <pitch> [fov] [roll]` (puts the camera there).
 - **FPS panel** (F3): frame rate, frame time graph, render resolution and upscaler, in any corner.
 - **Online play over LAN / Radmin VPN**: Xbox LIVE sign-in, session create/search/join and player matches,
   emulated on top of plain UDP.
@@ -197,11 +213,16 @@ cmake --preset win-amd64-relwithdebinfo -DREXGLUE_ENABLE_FIDELITYFX=ON
 
 The build copies `amd_fidelityfx_dx12.dll` next to `burstlimit.exe`; keep it there.
 
-### Optional: NVIDIA DLSS (DLAA)
+### Optional: NVIDIA DLSS
 Configure with `-DREXGLUE_ENABLE_DLSS=ON`. The build downloads the DLSS SDK files it needs (header, library and
 `nvngx_dlss.dll`, checked against pinned SHA-256 hashes), or uses a local copy given with
 `-DREXGLUE_DLSS_SDK_DIR=C:/path/to/dlss_sdk`. It copies `nvngx_dlss.dll` next to `burstlimit.exe`; keep it there.
 The DLSS SDK is under NVIDIA's own license (RTX SDKs), not this project's.
+
+### The new stages' pictures
+The thumbnails of the three extra stages are made from screenshots of the game, so they aren't in this
+repository: they're built into the release `burstlimit.exe` from `src/burstlimit_stage_thumbs.inc`. Without
+that file the build still works, and those three entries show placeholder pictures.
 
 ### Optional: Discord Rich Presence
 Download the Discord Social SDK and configure with:
@@ -255,9 +276,12 @@ settings menu (F1). Any setting can also be passed on the command line, e.g. `--
 | `free_camera` | `false` | Free camera (always off at startup). |
 | `freeze_game` | `false` | Stops the fight and its cinematics for the free camera, offline only (always off at startup). |
 | `bind_free_camera` / `bind_freeze_game` | `Insert` / `Numpad0` | Keyboard keys for the free camera and freeze. |
-| `dlss_mode` | `off` | `dlaa` = NVIDIA DLAA (RTX GPUs, experimental). |
+| `dlss_mode` | `off` | NVIDIA DLSS (RTX GPUs, experimental): `dlaa` (anti-aliasing at the chosen resolution), or `quality`, `balanced`, `performance`, `ultra_performance` (render lower and upscale; in whole steps of the resolution scale - at 4K the first three render at 1440p and `ultra_performance` at 720p). |
 | `dlss_preset` | `m` | DLSS model: `k`, `l` or `m`. |
-| `texture_lod_bias` | `0` | Texture detail: negative = sharper distant textures (-1 is NVIDIA's advice with DLAA). |
+| `texture_lod_bias` | `0` | Texture detail: negative = sharper distant textures (-1 is NVIDIA's advice with DLSS). |
+| `soft_filter` | `false` | The game's soft blur over the whole picture (made for 720p). |
+| `story_costumes` | `true` | The four Z Chronicles costumes on the character select. |
+| `extra_stages` | `true` | The three Z Chronicles stages on the Versus / Training stage select (offline). |
 | `quick_menu_buttons` | `back+start` | Controller buttons for the settings menu: `back+start`, `l3+r3` or `none` (F1 always works). |
 | `debug_overlay` | `false` | FPS panel (F3). |
 | `debug_overlay_position` | `top-left` | `top-left`, `top-right`, `bottom-left` or `bottom-right`. |
@@ -307,8 +331,12 @@ Switch between the windows with Alt+Tab; the controller follows the focused wind
 - A wider field of view can show missing objects at the edges of the screen: the game doesn't draw what it
   doesn't expect to be seen.
 - FSR 2 and FSR 3 can leave trails behind moving characters, as the game has no motion vectors for them.
-- NVIDIA DLAA is experimental: its motion vectors only follow the camera, so very fast moves can leave a faint
-  trail. It needs an NVIDIA RTX GPU (on others the option does nothing).
+- NVIDIA DLSS / DLAA is experimental: its motion vectors only follow the camera, so very fast moves can leave a
+  faint trail. It needs an NVIDIA RTX GPU (on others the option does nothing). The upscaling modes only render
+  in whole steps of the resolution scale (at 4K, Balanced renders at 1440p like Quality, not at NVIDIA's exact
+  ratio), and at 1280x720 they're all DLAA.
+- On the stage select, Wasteland and Seaside Cliffs show the Mountains background and banner behind the list,
+  and RANDOM's quick flicker only shows the original stages (the pick itself includes the new ones).
 - Linux has been tested through vkd3d-proton and DXVK (the translation Proton uses) on NVIDIA and AMD GPUs, but
   not on a Linux machine yet. Wine's own Direct3D 12 (plain Wine without vkd3d-proton) isn't supported - use
   the Linux zip or Proton.

@@ -10,6 +10,7 @@
 #include <cstring>
 #include <fstream>
 #include <functional>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -172,6 +173,29 @@ struct FreeCamera {
   std::chrono::steady_clock::time_point last_update;
 } g_free_camera;
 
+// A pose from the free_camera_pose command. The console posts it from its own
+// thread and BurstLimitCameraFrame takes it on the game thread, on its first
+// tick with the free camera running (it waits until then, e.g. while there's
+// no camera yet).
+struct PostedPose {
+  bool pending = false;
+  Vec3 position;
+  float yaw = 0.0f;
+  float pitch = 0.0f;
+  float roll = 0.0f;
+  bool has_fov = false;  // Without one the camera keeps its FOV.
+  float fov = 0.0f;
+};
+std::mutex g_posted_pose_mutex;
+PostedPose g_posted_pose;  // Guarded by g_posted_pose_mutex.
+// Game thread only: free_camera on last tick, to drop a pose still waiting
+// when the camera is turned off.
+bool g_free_camera_was_on = false;
+
+// Set by the free_camera_where command (console thread): BurstLimitCameraFrame
+// logs the pose on its next tick, so it's all read on the game thread.
+std::atomic<bool> g_where_requested{false};
+
 // Game thread only. The battle object the freeze bit was set in (0 = none).
 uint32_t g_frozen_battle = 0;
 
@@ -223,17 +247,104 @@ Vec3 Forward(float yaw, float pitch) {
   return {std::sin(yaw) * std::cos(pitch), std::sin(pitch), -std::cos(yaw) * std::cos(pitch)};
 }
 
+// The free camera's yaw and pitch looking from `eye` to `target`; false (and
+// left alone) when they're the same point.
+bool LookAngles(const Vec3& eye, const Vec3& target, float& yaw, float& pitch) {
+  Vec3 direction{target.x - eye.x, target.y - eye.y, target.z - eye.z};
+  const float length = std::sqrt(direction.x * direction.x + direction.y * direction.y +
+                                 direction.z * direction.z);
+  if (!(length > 1e-4f)) {
+    return false;
+  }
+  pitch = std::asin(std::clamp(direction.y / length, -1.0f, 1.0f));
+  yaw = std::atan2(direction.x, -direction.z);
+  return true;
+}
+
 // Points the free camera like the game's camera from `eye` to `target`.
 void AimFreeCamera(const Vec3& eye, const Vec3& target) {
   FreeCamera& camera = g_free_camera;
   camera.position = eye;
-  Vec3 direction{target.x - eye.x, target.y - eye.y, target.z - eye.z};
-  const float length = std::sqrt(direction.x * direction.x + direction.y * direction.y +
-                                 direction.z * direction.z);
-  if (length > 1e-4f) {
-    camera.pitch = std::asin(std::clamp(direction.y / length, -1.0f, 1.0f));
-    camera.yaw = std::atan2(direction.x, -direction.z);
+  LookAngles(eye, target, camera.yaw, camera.pitch);
+}
+
+// Game thread: puts the free camera at the pose free_camera_pose posted, if
+// there's one, with the HUD hidden as when the free camera starts.
+void TakePostedPose() {
+  PostedPose pose;
+  {
+    std::lock_guard<std::mutex> lock(g_posted_pose_mutex);
+    if (!g_posted_pose.pending) {
+      return;
+    }
+    pose = g_posted_pose;
+    g_posted_pose.pending = false;
   }
+  FreeCamera& camera = g_free_camera;
+  camera.position = pose.position;
+  camera.yaw = pose.yaw;
+  camera.pitch = pose.pitch;
+  camera.roll = pose.roll;
+  if (pose.has_fov) {
+    camera.fov = pose.fov;
+  }
+  camera.show_hud = false;
+  rex::graphics::SetHideHudDraws(true);
+}
+
+// Game thread: the answer to free_camera_where. The free camera's pose as
+// free_camera_pose arguments, then the render camera (what the last frame was
+// drawn from - the free camera's view while it's on) and the camera the game
+// has in charge, with that one as a pose too.
+void LogFreeCameraWhere(rex::memory::Memory* memory) {
+  const FreeCamera& camera = g_free_camera;
+  if (camera.active) {
+    REXLOG_INFO("free_camera_where: free_camera_pose {} {} {} {} {} {} {}", camera.position.x,
+                camera.position.y, camera.position.z, camera.yaw, camera.pitch, camera.fov,
+                camera.roll);
+  } else {
+    bool pending;
+    {
+      std::lock_guard<std::mutex> lock(g_posted_pose_mutex);
+      pending = g_posted_pose.pending;
+    }
+    REXLOG_INFO("free_camera_where: free camera off{}",
+                pending ? " (a posted pose is waiting for it to start)" : "");
+  }
+  const uint32_t manager_address =
+      rex::memory::load_and_swap<uint32_t>(memory->TranslateVirtual<uint8_t*>(kManagerPointer));
+  if (!manager_address) {
+    REXLOG_INFO("free_camera_where: no game camera");
+    rex::FlushLogging();
+    return;
+  }
+  const uint8_t* manager = memory->TranslateVirtual<const uint8_t*>(manager_address);
+  const std::pair<const char*, uint32_t> kCameras[] = {
+      {"render", kManagerRenderCamera},
+      {"game", kManagerSourceCamera},
+  };
+  for (const auto& [name, offset] : kCameras) {
+    const uint32_t camera_address = rex::memory::load_and_swap<uint32_t>(manager + offset);
+    if (!camera_address) {
+      REXLOG_INFO("free_camera_where: no {} camera", name);
+      continue;
+    }
+    const uint8_t* game_camera = memory->TranslateVirtual<const uint8_t*>(camera_address);
+    const Vec3 eye = ReadVec3(game_camera + kCameraEye);
+    const Vec3 target = ReadVec3(game_camera + kCameraTarget);
+    const float fov = rex::memory::load_and_swap<float>(game_camera + kCameraFov);
+    const float roll = rex::memory::load_and_swap<float>(game_camera + kCameraRoll);
+    REXLOG_INFO("free_camera_where: {} camera {:08X}: eye {} {} {} target {} {} {} fov {} roll {}",
+                name, camera_address, eye.x, eye.y, eye.z, target.x, target.y, target.z, fov,
+                roll);
+    float yaw = 0.0f, pitch = 0.0f;
+    if (offset == kManagerSourceCamera && LookAngles(eye, target, yaw, pitch)) {
+      // Its own roll left out: the free camera drops it.
+      REXLOG_INFO("free_camera_where: game camera as a pose: free_camera_pose {} {} {} {} {} {}",
+                  eye.x, eye.y, eye.z, yaw, pitch, fov);
+    }
+  }
+  rex::FlushLogging();
 }
 
 void StopFreeCamera() {
@@ -250,21 +361,21 @@ void StopFreeCamera() {
   camera.active = false;
 }
 
-}  // namespace
-
-// Mid-asm hook in the main loop (sub_822197D0, 0x822198F8), once per game
-// tick, right before the task scheduler runs the frame's update and drawing
-// tasks (0x8221993C). Also where the freeze is applied.
-void BurstLimitCameraFrame(PPCRegister& r30) {
-  (void)r30;
-  auto* runtime = rex::Runtime::instance();
-  auto* memory = runtime ? runtime->memory() : nullptr;
-  if (!memory) {
-    return;
-  }
-  ApplyFreeze(memory);
+// Every tick, after ApplyFreeze: moves the free camera by the controller (or
+// to a pose free_camera_pose posted) for BurstLimitCameraApply to write later
+// in the tick.
+void UpdateFreeCamera(rex::memory::Memory* memory) {
   FreeCamera& camera = g_free_camera;
-  if (!REXCVAR_GET(free_camera)) {
+  const bool on = REXCVAR_GET(free_camera);
+  if (!on && g_free_camera_was_on) {
+    // Turned off: a pose that never got its camera (no camera yet) isn't kept
+    // for the next time. The command turns the camera on after posting, so a
+    // new pose is never dropped here.
+    std::lock_guard<std::mutex> lock(g_posted_pose_mutex);
+    g_posted_pose.pending = false;
+  }
+  g_free_camera_was_on = on;
+  if (!on) {
     if (camera.active) {
       StopFreeCamera();
     }
@@ -301,6 +412,9 @@ void BurstLimitCameraFrame(PPCRegister& r30) {
     input->AddUIInputBlocker();
     camera.blocking_input = true;
   }
+  // After the start, so a pose posted before the camera was on isn't replaced
+  // by the game's view.
+  TakePostedPose();
   const float dt = std::clamp(
       std::chrono::duration<float>(now - camera.last_update).count(), 0.0f, 0.1f);
   camera.last_update = now;
@@ -393,6 +507,26 @@ void BurstLimitCameraFrame(PPCRegister& r30) {
   camera.eye = camera.position;
   camera.target = {camera.position.x + forward.x * 10.0f, camera.position.y + forward.y * 10.0f,
                    camera.position.z + forward.z * 10.0f};
+}
+
+}  // namespace
+
+// Mid-asm hook in the main loop (sub_822197D0, 0x822198F8), once per game
+// tick, right before the task scheduler runs the frame's update and drawing
+// tasks (0x8221993C). Also where the freeze is applied.
+void BurstLimitCameraFrame(PPCRegister& r30) {
+  (void)r30;
+  auto* runtime = rex::Runtime::instance();
+  auto* memory = runtime ? runtime->memory() : nullptr;
+  if (!memory) {
+    return;
+  }
+  ApplyFreeze(memory);
+  UpdateFreeCamera(memory);
+  // After the update, so it shows a pose free_camera_pose has just posted.
+  if (g_where_requested.exchange(false)) {
+    LogFreeCameraWhere(memory);
+  }
 }
 
 // Mid-asm hook in the [SYS] PREDRAW task (sub_8216CAF0, 0x8216CB94), after the
@@ -687,6 +821,61 @@ void PadPress(std::string_view args) {
   }
 }
 
+bool ParseFloat(const std::string& text, float& value) {
+  char* end = nullptr;
+  value = std::strtof(text.c_str(), &end);
+  return end != text.c_str() && *end == '\0' && std::isfinite(value);
+}
+
+// free_camera_pose: <x> <y> <z> <yaw> <pitch> [fov|-] [roll]: turns the free
+// camera on and puts it there, HUD hidden, for screenshots without a
+// controller. Radians, as the free camera has them: yaw 0 looks down -Z and
+// positive turns right, positive pitch looks up. Without a FOV (or with -) it
+// keeps its own - the game's when it starts; roll is 0 unless given.
+// free_camera_where prints these arguments for the current view. The game
+// thread takes the pose on its next tick.
+void FreeCameraPose(std::string_view args) {
+  const std::vector<std::string> parts = SplitArgs(args);
+  float values[7] = {};
+  bool valid = parts.size() >= 5 && parts.size() <= 7;
+  for (size_t i = 0; valid && i < parts.size(); ++i) {
+    valid = (i == 5 && parts[i] == "-") || ParseFloat(parts[i], values[i]);
+  }
+  if (!valid) {
+    REXLOG_WARN("free_camera_pose: usage: free_camera_pose <x> <y> <z> <yaw> <pitch> [fov|-] "
+                "[roll] (radians)");
+    return;
+  }
+  const bool has_fov = parts.size() > 5 && parts[5] != "-";
+  {
+    std::lock_guard<std::mutex> lock(g_posted_pose_mutex);
+    g_posted_pose.pending = true;
+    g_posted_pose.position = {values[0], values[1], values[2]};
+    g_posted_pose.yaw = values[3];
+    g_posted_pose.pitch = values[4];
+    g_posted_pose.has_fov = has_fov;
+    g_posted_pose.fov = values[5];
+    g_posted_pose.roll = values[6];
+  }
+  // Posted first: if the camera starts now, it starts there.
+  if (!REXCVAR_GET(free_camera)) {
+    rex::cvar::SetFlagByName("free_camera", "true");
+  }
+  if (has_fov) {
+    REXLOG_INFO("free_camera_pose: posted {} {} {} {} {} {} {}", values[0], values[1], values[2],
+                values[3], values[4], values[5], values[6]);
+  } else {
+    REXLOG_INFO("free_camera_pose: posted {} {} {} {} {} - {}", values[0], values[1], values[2],
+                values[3], values[4], values[6]);
+  }
+}
+
+// free_camera_where: logs the free camera's pose as free_camera_pose arguments,
+// and the game's cameras (on the game thread's next tick).
+void FreeCameraWhere() {
+  g_where_requested.store(true);
+}
+
 // Memory snapshots for finding a value by how it changes (like a cheat
 // search): mem_snap <slot>, then mem_diff <slot a> <slot b> <size 1|2|4>
 // <value in a|*> <value in b|*>, then mem_narrow <slot> <size> <value> to keep
@@ -864,6 +1053,12 @@ void MemNarrow(std::string_view args) {
 
 REXCVAR_DEFINE_COMMAND_ARGS(pad_press, PadPress, "Debug",
                             "Hold controller buttons for the game: <a|rb|lb+y...> [ms] [user]");
+REXCVAR_DEFINE_COMMAND_ARGS(free_camera_pose, FreeCameraPose, "Debug",
+                            "Free camera on, at a pose: <x> <y> <z> <yaw> <pitch> [fov|-] [roll] "
+                            "(radians)");
+REXCVAR_DEFINE_COMMAND(free_camera_where, FreeCameraWhere, "Debug",
+                       "Log the free camera's pose as free_camera_pose arguments, and the game's "
+                       "cameras");
 REXCVAR_DEFINE_COMMAND_ARGS(mem_snap, MemSnap, "Debug", "Snapshot writable guest memory: <slot>");
 REXCVAR_DEFINE_COMMAND_ARGS(mem_diff, MemDiff, "Debug",
                             "Values changed between snapshots: <a> <b> <size> <value a|*> "

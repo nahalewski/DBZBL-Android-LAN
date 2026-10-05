@@ -41,6 +41,7 @@
 
 #include <imgui.h>
 
+#include <rex/cvar.h>
 #include <rex/logging.h>
 #include <rex/memory.h>
 #include <rex/memory/utils.h>
@@ -52,6 +53,16 @@
 #include <rex/ui/overlay/overlay_text.h>
 
 #include "burstlimit_cpk.h"
+
+// The character data gives Goku 4 costumes, Kid Gohan 4 and Teen Gohan 3, but
+// the character select caps them at 2, 3 and 2: the others are only worn in Z
+// Chronicles - Goku battle-damaged (vs 100% Frieza) and as Ginyu (green
+// scouter), Kid Gohan in his Raditz-saga outfit, Teen Gohan battle-damaged
+// (Cell Games). Their models, forms and motions are all in the game.
+REXCVAR_DEFINE_BOOL(story_costumes, true, "Patches",
+                    "The Z Chronicles-only costumes on the character select (Y / Change Color): "
+                    "Goku battle-damaged and as Ginyu, Kid Gohan's Raditz-saga outfit, Teen "
+                    "Gohan battle-damaged");
 
 namespace {
 
@@ -186,6 +197,20 @@ void BurstLimitCharSelectButtons(PPCRegister& r19, PPCRegister& r30, PPCRegister
   g_forms[side][character].store(uint8_t(form), std::memory_order_relaxed);
   REXLOG_INFO("Character select: side {} character {} start form {} ({})", side, character, form,
               kForms[character][form]);
+}
+
+// Mid-asm hook at 0x8224530C in sub_82244F60 (the character select's setup),
+// after it caps the color counts: r30 = the screen's object, whose words at
+// +720 / +724 / +728 are the color counts of Goku, Kid Gohan and Teen Gohan.
+void BurstLimitStoryCostumes(PPCRegister& r30) {
+  auto* memory = GuestMemory();
+  if (!memory || !r30.u32 || !REXCVAR_GET(story_costumes)) {
+    return;
+  }
+  uint8_t* object = memory->TranslateVirtual<uint8_t*>(r30.u32);
+  rex::memory::store_and_swap<uint32_t>(object + 720, 4);
+  rex::memory::store_and_swap<uint32_t>(object + 724, 4);
+  rex::memory::store_and_swap<uint32_t>(object + 728, 3);
 }
 
 // Mid-asm hook at 0x82181E24 in sub_82181BB0 (lhz r28,6(r20)): r20 is the

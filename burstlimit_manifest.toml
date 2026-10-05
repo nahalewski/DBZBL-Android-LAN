@@ -39,6 +39,33 @@ name = "BurstLimit60FpsForceCap"
 registers = ["r3"]
 after_instruction = true
 
+# The third place the game asks for 30 FPS (sub_82238018, the title attract
+# demo's setup, mode 15).
+[[entrypoint.midasm_hook]]
+address = 0x822382A0
+name = "BurstLimit60FpsForceCap"
+registers = ["r3"]
+after_instruction = true
+
+# Cutscenes (battle+574 & 2): the motion and camera clocks advance half a frame
+# per tick (the game was made for 30 FPS) and are rounded to whole frames
+# before posing - (int)(t + 0.4) - so poses change only every other tick.
+# r11 = 0 takes the fight path, which samples the time as it is (blending
+# between keyframes). The clocks themselves are unchanged.
+# sub_821A9CC8: a character's body motion time.
+[[entrypoint.midasm_hook]]
+address = 0x821A9D60
+name = "BurstLimitDramaSmoothMotion"
+registers = ["r11"]
+after_instruction = true
+
+# sub_8216CD68: the cutscene camera's time.
+[[entrypoint.midasm_hook]]
+address = 0x8216CDC8
+name = "BurstLimitDramaSmoothMotion"
+registers = ["r11"]
+after_instruction = true
+
 # beq when the tick counter is 0: with interval 1 it is always 0, so the
 # match-quit and pause (START) paths never run and the game locks up.
 [[entrypoint.midasm_hook]]
@@ -120,12 +147,95 @@ address = 0x8224A860
 name = "BurstLimitCharSelectButtons"
 registers = ["r19", "r30", "r31"]
 
+# Character select init sub_82244F60: after it caps the colors of Goku, Kid
+# Gohan and Teen Gohan (li r11,2 / li r9,3 ... stw r11,728(r30)) - the
+# story-only costumes come back (story_costumes).
+[[entrypoint.midasm_hook]]
+address = 0x8224530C
+name = "BurstLimitStoryCostumes"
+registers = ["r30"]
+
 # Character loader sub_82181BB0, right before it reads the start form from the
 # match request entry (lhz r28,6(r20)) to load that form's model.
 [[entrypoint.midasm_hook]]
 address = 0x82181E24
 name = "BurstLimitStartFormLoad"
 registers = ["r20", "r24"]
+
+# --- Extra stages on the Versus / Training stage select (src/burstlimit_stages.cpp) ---
+# Stage select setup sub_82263628, right before bl sub_82261DF8 fills partners,
+# locks and RANDOM's pool from the 6-entry list (r31 = the screen's object).
+[[entrypoint.midasm_hook]]
+address = 0x822637FC
+name = "BurstLimitStagesInit"
+registers = ["r31"]
+
+# End of sub_82233E78 (is stage r4 unlocked; r3 = the answer).
+[[entrypoint.midasm_hook]]
+address = 0x82233EAC
+name = "BurstLimitStagesUnlock"
+registers = ["r3", "r4"]
+
+# sub_82263628 after sub_82261DF8 (r18 = the stage the cursor goes back to).
+[[entrypoint.midasm_hook]]
+address = 0x82263800
+name = "BurstLimitStagesRefresh"
+registers = ["r18", "r31"]
+
+# sub_822605A0 (carousel cards): lhzx r11 = the card's sprite of the stage's group.
+[[entrypoint.midasm_hook]]
+address = 0x82260680
+name = "BurstLimitStagesCardPart"
+registers = ["r11", "r27"]
+after_instruction = true
+
+# sub_822605A0: the card's sprite is made (r3).
+[[entrypoint.midasm_hook]]
+address = 0x822606AC
+name = "BurstLimitStagesCardTexture"
+registers = ["r3", "r27", "r29", "r30"]
+
+# sub_82260710 (big picture): lhzx r10 = its sprite of the stage's group.
+[[entrypoint.midasm_hook]]
+address = 0x82260920
+name = "BurstLimitStagesPreviewPart"
+registers = ["r10", "r25"]
+after_instruction = true
+
+# sub_82260710: the big picture's sprite is made (r3), before stw r3,32(r31).
+[[entrypoint.midasm_hook]]
+address = 0x82260C20
+name = "BurstLimitStagesPreviewTexture"
+registers = ["r3", "r25", "r31"]
+
+# sub_82261FC8 (the stage select's frame), after the cards' and big picture's
+# animations set their textures again, before they're copied to the carousel
+# (r22 = the stage select's globals).
+[[entrypoint.midasm_hook]]
+address = 0x822620E4
+name = "BurstLimitStagesPictures"
+registers = ["r22"]
+
+# sub_82260710: stw r3,0(r24) keeps the stage's name text.
+[[entrypoint.midasm_hook]]
+address = 0x82260C64
+name = "BurstLimitStagesName"
+registers = ["r3", "r25"]
+
+# sub_82263538 (the stage's preview movie, r3 = the stage).
+[[entrypoint.midasm_hook]]
+address = 0x82263538
+name = "BurstLimitStagesMovie"
+registers = ["r3"]
+return_on_true = true
+
+# NTXR loader sub_820EB688, before bl sub_820F3F88 makes a texture: r26 = the
+# NTXR version, r29 = the texture's index in the file, r30 = its header. The
+# new entries' pictures go into UISTS_TOP.NUT textures 33-35 here.
+[[entrypoint.midasm_hook]]
+address = 0x820EB784
+name = "BurstLimitStagesThumbnailData"
+registers = ["r26", "r29", "r30"]
 
 # --- Online (src/burstlimit_patches.cpp) ---
 

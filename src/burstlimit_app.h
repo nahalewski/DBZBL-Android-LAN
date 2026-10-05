@@ -152,22 +152,35 @@ class BurstlimitApp : public rex::ReXApp {
         {{"none", "Off"}, {"fxaa", "FXAA"}, {"fxaa_extreme", "FXAA (strong)"}},
         "Smooths jagged edges. Softens the image a little."));
     graphics.items.push_back(choice(
-        "NVIDIA DLAA", "dlss_mode", {{"off", "Off"}, {"dlaa", "On"}},
-        "NVIDIA's AI anti-aliasing for the 3D scene, at the resolution above (RTX GPUs). The "
-        "HUD stays as it is."));
+        "NVIDIA DLSS", "dlss_mode",
+        {{"off", "Off"},
+         {"dlaa", "DLAA"},
+         {"quality", "Quality"},
+         {"balanced", "Balanced"},
+         {"performance", "Performance"},
+         {"ultra_performance", "Ultra Performance"}},
+        "NVIDIA's AI anti-aliasing and upscaling for the 3D scene (RTX GPUs). DLAA keeps the "
+        "resolution above; Quality to Ultra Performance render below it and upscale the scene "
+        "to it, for more FPS, with the HUD drawn at the full resolution. Only whole steps "
+        "exist: at 4K, Quality to Performance render at 2560x1440 and Ultra Performance at "
+        "1280x720; at 2560x1440 every mode renders at 1280x720; at 1280x720 there's nothing "
+        "lower, so every mode is DLAA."));
     Item& dlss_preset = graphics.items.emplace_back(choice(
         "DLSS model", "dlss_preset", {{"k", "K"}, {"l", "L"}, {"m", "M"}},
-        "NVIDIA's DLSS models. M is sharper and more stable than K; L is like M but slower."));
+        "NVIDIA's DLSS models. M is sharper and more stable than K; L is like M but slower "
+        "(NVIDIA's choice for Ultra Performance)."));
     dlss_preset.shown_if_cvar = "dlss_mode";
-    dlss_preset.shown_if_values = {"dlaa"};
+    dlss_preset.shown_if_values = {"dlaa", "quality", "balanced", "performance",
+                                   "ultra_performance"};
     graphics.items.push_back(choice(
         "Texture filtering", "anisotropic_override",
         {{"-1", "Game"}, {"1", "1x"}, {"2", "2x"}, {"3", "4x"}, {"4", "8x"}, {"5", "16x"}},
         "Keeps textures sharp when seen at an angle, like the floor."));
     Item& texture_detail = graphics.items.emplace_back(
         number("Texture detail", "texture_lod_bias", -2.0, 0.0, 0.25,
-               "Sharper textures on distant surfaces. NVIDIA recommends -1 with DLAA; without "
-               "DLAA, below -0.5 can shimmer."));
+               "Sharper textures on distant surfaces. NVIDIA recommends -1 with DLSS (its "
+               "lower render resolution is made up for by itself); without DLSS, below -0.5 "
+               "can shimmer."));
     texture_detail.format = "%.2f";
     graphics.items.push_back(toggle(
         "Texture pack", "texture_replace_enabled",
@@ -193,6 +206,10 @@ class BurstlimitApp : public rex::ReXApp {
         "resolution."));
     effects.items.push_back(
         toggle("Motion blur", "motion_blur", "Directional blur during fast moves."));
+    effects.items.push_back(toggle(
+        "Soft filter", "soft_filter",
+        "The game's soft look: a slight blur over the whole picture, made for 720p. Above "
+        "1280x720 it blurs a lot - keep it off for the real sharpness of the resolution."));
 
     rex::ui::QuickMenuSection& game = menu.sections.emplace_back();
     game.title = "GAME";

@@ -14,6 +14,10 @@
 # Texture dumps / replacement packs
 /textures/
 
+# The extra stages' thumbnails (made from screenshots of the game): only in the
+# release builds.
+/src/burstlimit_stage_thumbs.inc
+
 # Local runtime files
 *.log
 /burstlimit.toml
