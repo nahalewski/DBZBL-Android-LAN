@@ -1,6 +1,8 @@
 # Copy next to burstlimit.exe as burstlimit.toml.
 # Most settings can also be changed in game: F1, or Back + Start on the controller.
 log_level = "info"
+# Log file next to the game (relative to the working folder). Send it if something goes wrong.
+log_file = "burstlimit.log"
 fullscreen = false
 vsync = true
 gpu_plugin = "xenos"
@@ -13,6 +15,18 @@ draw_resolution_scale_y = 2
 # Frame rate cap: "30" (the original), "60", "120", "144" or "unlocked".
 frame_rate = "60"
 
+# Online play without a VPN (see README "Online play"): rooms show up in
+# Versus > Xbox LIVE Battle > Player Match. Empty online_lobby_url = LAN / Radmin VPN only
+# (scripts\Host_Online.bat / Join_Online.bat).
+online_lobby_url = "wss://burstlimit-lobby.azoxrag2.workers.dev/v1/ws"
+# Your name in online rooms (max 15 characters, printable ASCII). Empty = your Windows user name.
+online_name = ""
+# Lobby matches: input delay in frames, 2 = very low ping, 3-4 = normal, 6-8 = high ping.
+# The host's value is used by both players. "off" = the game's own timing (online_tick_sleep).
+online_input_delay = "4"
+
 # Game patches (see README).
 online_fast_tick = true
+# LAN / Radmin VPN input buffer (both players the same): 0 = LAN, 1 = internet, 2 = high ping, 3 = original.
+online_tick_sleep = 1
 online_input_delay_test = true

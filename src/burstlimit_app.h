@@ -14,6 +14,9 @@
 
 // burstlimit_patches.cpp
 void BurstLimitApplyPostEffectSettings();
+// burstlimit_online.cpp
+void BurstLimitOnlineSetup();
+std::unique_ptr<rex::ui::ImGuiDialog> BurstLimitCreateOnlineNotice(rex::ui::ImGuiDrawer* drawer);
 // burstlimit_forms.cpp
 std::unique_ptr<rex::ui::ImGuiDialog> BurstLimitCreateStartFormTags(
     rex::ui::ImGuiDrawer* drawer, rex::ui::ImmediateDrawer* immediate_drawer,
@@ -36,12 +39,14 @@ class BurstlimitApp : public rex::ReXApp {
       config.gpu_plugin = "xenos";
     }
     BurstLimitApplyPostEffectSettings();
+    BurstLimitOnlineSetup();
   }
 
   // The start form tags of the character select (burstlimit_forms.cpp), and
   // the keyboard keys for the free camera (rebindable in the settings menu).
   void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override {
     start_form_tags_ = BurstLimitCreateStartFormTags(drawer, immediate_drawer(), game_data_root());
+    online_notice_ = BurstLimitCreateOnlineNotice(drawer);
     rex::ui::RegisterBind("bind_free_camera", "Insert", "Free camera on/off", [] {
       rex::cvar::SetFlagByName(
           "free_camera", rex::cvar::Query<bool>("free_camera") ? "false" : "true");
@@ -56,6 +61,7 @@ class BurstlimitApp : public rex::ReXApp {
     rex::ui::UnregisterBind("bind_free_camera");
     rex::ui::UnregisterBind("bind_freeze_game");
     start_form_tags_.reset();
+    online_notice_.reset();
   }
 
   // The settings menu (F1 or Back + Start on the controller).
@@ -173,6 +179,27 @@ class BurstlimitApp : public rex::ReXApp {
     dlss_preset.shown_if_values = {"dlaa", "quality", "balanced", "performance",
                                    "ultra_performance"};
     graphics.items.push_back(choice(
+        "AMD FSR", "fsr_mode",
+        {{"off", "Off"},
+         {"native_aa", "Native AA"},
+         {"quality", "Quality"},
+         {"balanced", "Balanced"},
+         {"performance", "Performance"},
+         {"ultra_performance", "Ultra Performance"}},
+        "AMD's anti-aliasing and upscaling for the 3D scene, like NVIDIA DLSS (turning one on "
+        "turns the other off): FSR 4 on AMD RX 9000 and RX 7000 GPUs, FSR 3.1.5 on any other. "
+        "Native AA keeps the resolution above; Quality to Ultra Performance render below it "
+        "and upscale the scene to it, for more FPS, with the HUD drawn at the full resolution. "
+        "Only whole steps exist, like DLSS's."));
+    Item& fsr_scene_sharpness = graphics.items.emplace_back(
+        number("FSR sharpness", "fsr_sharpness", 0.0, 1.0, 0.1,
+               "Sharpening after AMD FSR (0 = off)."));
+    fsr_scene_sharpness.display_scale = 100.0;
+    fsr_scene_sharpness.format = "%.0f%%";
+    fsr_scene_sharpness.shown_if_cvar = "fsr_mode";
+    fsr_scene_sharpness.shown_if_values = {"native_aa", "quality", "balanced", "performance",
+                                           "ultra_performance"};
+    graphics.items.push_back(choice(
         "Texture filtering", "anisotropic_override",
         {{"-1", "Game"}, {"1", "1x"}, {"2", "2x"}, {"3", "4x"}, {"4", "8x"}, {"5", "16x"}},
         "Keeps textures sharp when seen at an angle, like the floor."));
@@ -222,13 +249,30 @@ class BurstlimitApp : public rex::ReXApp {
          {"unlocked", "Unlocked"}},
         "The most frames per second the game runs at. 30 is the original. Above 60 needs a "
         "monitor with a high refresh rate to see the difference."));
+    game.items.push_back(choice(
+        "Online input delay", "online_input_delay",
+        {{"2", "2 frames"},
+         {"3", "3 frames"},
+         {"4", "4 frames"},
+         {"5", "5 frames"},
+         {"6", "6 frames"},
+         {"8", "8 frames"},
+         {"off", "Game default"}},
+        "Online matches (lobby): how many frames your button presses wait so both PCs stay in "
+        "step. Lower feels snappier; the fight only pauses when the ping is above it (one "
+        "frame = 17 ms: 2 frames ~ up to 25 ms ping one way, 4 frames ~ 55 ms, 6 frames ~ "
+        "90 ms, 8 frames ~ 120 ms). The host's choice is used by both players and it can't "
+        "change during a session. Game default brings back the older Online input speed "
+        "setting (used over Radmin / LAN)."));
     Item& online = game.items.emplace_back(choice(
         "Online input speed", "online_tick_sleep",
         {{"0", "LAN"}, {"1", "Fast"}, {"2", "Normal"}, {"3", "Game default"}},
-        "How often online matches exchange inputs: Fast for a good ping, Normal for an "
-        "average one. Both players must pick the same."));
-    online.shown_if_cvar = "online_fast_tick";
-    online.shown_if_values = {"true"};
+        "How often online matches exchange inputs over Radmin / LAN, or in the lobby with "
+        "Online input delay on Game default: Fast for a good ping, Normal for an average one. "
+        "Both players must pick the same."));
+    // Only matters when no lobby input delay is picked (Radmin / LAN, or Game default).
+    online.shown_if_cvar = "online_input_delay";
+    online.shown_if_values = {"off"};
     game.items.push_back(toggle("Vibration", "vibration", "Controller vibration."));
     game.items.push_back(toggle(
         "Free camera", "free_camera",
@@ -282,11 +326,15 @@ class BurstlimitApp : public rex::ReXApp {
     const auto local_game_root =
         std::filesystem::path(exe_path).parent_path() / L"game_data_root";
 
-    if (std::filesystem::exists(local_game_root / L"default.xex")) {
+    // The folder next to the executable, unless --game_data_root (or the
+    // config) names another one.
+    if (paths.game_data_root.empty() &&
+        std::filesystem::exists(local_game_root / L"default.xex")) {
       paths.game_data_root = local_game_root;
     }
   }
 
  private:
   std::unique_ptr<rex::ui::ImGuiDialog> start_form_tags_;
+  std::unique_ptr<rex::ui::ImGuiDialog> online_notice_;
 };

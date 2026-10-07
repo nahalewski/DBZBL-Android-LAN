@@ -27,6 +27,11 @@ normal Windows program instead of inside an emulator.
 - **Resolution and upscaling**: internal resolution up to 4K and beyond, changeable while playing; AMD FSR 1/2/3
   and CAS sharpening, FXAA, anisotropic filtering, and a **Texture detail** option (`texture_lod_bias`) for
   sharper textures in the distance.
+- **AMD FSR 4 / FSR 3.1.5** (`fsr_mode`, `fsr_sharpness`): AMD's anti-aliasing and upscaling for the 3D scene,
+  like DLSS below (same jitter, motion vectors and HUD handling). **FSR 4** on AMD RX 9000 GPUs (and RX 7000 with
+  AMD's FSR 4 driver support), **FSR 3.1.5** on any other GPU. **Native AA** keeps the resolution; **Quality** to
+  **Ultra Performance** render the scene lower and upscale it. FSR 4 hasn't been tested on AMD hardware yet -
+  reports welcome.
 - **NVIDIA DLSS and DLAA (experimental)** (`dlss_mode`, `dlss_preset`): NVIDIA's AI anti-aliasing and upscaling
   on RTX GPUs, applied to the 3D scene before the HUD, with the jitter and camera motion vectors it needs
   reconstructed from the game's draws. **DLAA** keeps the chosen resolution; **Quality**, **Balanced**,
@@ -59,12 +64,17 @@ normal Windows program instead of inside an emulator.
   repeatable shots, the console commands `free_camera_where` (logs the current camera as a command) and
   `free_camera_pose <x> <y> <z> <yaw> <pitch> [fov] [roll]` (puts the camera there).
 - **FPS panel** (F3): frame rate, frame time graph, render resolution and upscaler, in any corner.
-- **Online play over LAN / Radmin VPN**: Xbox LIVE sign-in, session create/search/join and player matches,
-  emulated on top of plain UDP.
-- **Low-latency online** (`online_fast_tick`, `online_tick_sleep`): the game's match driver normally only runs
-  every 4th frame and sends input in 12-frame batches (~1 second of input delay even on LAN). The patch makes the
-  step configurable; the default (`online_tick_sleep = 1`) cuts the delay to about a tenth without slow motion
-  over the internet.
+- **Online over the internet, no VPN** (`online_lobby_url`): rooms appear in the game's own Player Match menus
+  (Create Match / Custom Match), served by a small lobby server; the two PCs then connect directly (ICE with
+  STUN hole punching, a TURN relay when that isn't possible). See [Online play](#online-play).
+- **Smooth online fights** (`online_input_delay`): every frame's input is sent right away over a side channel
+  and both PCs run it a fixed number of frames later (2-8, the host's choice), instead of the game's 3-frame
+  packs - no slow motion while the ping stays under the delay. The guest takes the host's online settings, every
+  datagram is sent again a few ms later (`online_redundancy`), and a desync check compares the fight's state
+  every frame. Rooms are only listed between identical builds.
+- **Older online method over LAN / Radmin VPN**: Xbox LIVE sign-in, session create/search/join and player
+  matches, emulated on top of plain UDP, with a configurable match driver step (`online_fast_tick`,
+  `online_tick_sleep`): the game normally sends input in 12-frame batches (~1 second of input delay even on LAN).
 - **Texture dumping / replacement** (`texture_dump_enabled`, `texture_replace_enabled`): put a texture pack in
   `textures\replace` and turn on **Texture pack** in the settings menu. Replacements get mipmaps and are decoded
   in the background at startup, so they don't stutter the game when first used; packs bigger than
@@ -213,6 +223,14 @@ cmake --preset win-amd64-relwithdebinfo -DREXGLUE_ENABLE_FIDELITYFX=ON
 
 The build copies `amd_fidelityfx_dx12.dll` next to `burstlimit.exe`; keep it there.
 
+### Optional: AMD FSR 4 / FSR 3.1.5 (scene upscaler)
+Configure with `-DREXGLUE_ENABLE_FSR_SDK=ON` (D3D12 only). The build downloads the files it needs from AMD's
+FidelityFX SDK v2.3.0 (headers plus AMD's signed `amd_fidelityfx_loader_dx12.dll` and
+`amd_fidelityfx_upscaler_dx12.dll`, checked against pinned SHA-256 hashes), or uses a local copy laid out like the
+SDK's `Kits/FidelityFX` given with `-DREXGLUE_FSR_SDK_DIR=C:/path/to/FidelityFX`. It copies both DLLs next to
+`burstlimit.exe`; keep them there. The DLLs are under AMD's license (`docs/license.md` of the SDK), not this
+project's. FSR 4 itself comes with the AMD driver on GPUs that support it; elsewhere the DLL runs FSR 3.1.5.
+
 ### Optional: NVIDIA DLSS
 Configure with `-DREXGLUE_ENABLE_DLSS=ON`. The build downloads the DLSS SDK files it needs (header, library and
 `nvngx_dlss.dll`, checked against pinned SHA-256 hashes), or uses a local copy given with
@@ -259,6 +277,9 @@ settings menu (F1). Any setting can also be passed on the command line, e.g. `--
   D-pad left/right tilt, A hides the HUD, X freezes the game, Y resets, B exits.
 - Input only goes to the focused window.
 
+> **Stuck at 30 FPS on an NVIDIA GPU?** Don't set a **Max Frame Rate** of 60 for this game in the NVIDIA Control
+> Panel / NVIDIA App: it locks the game to 30. Use the game's own **Frame rate** setting (F1 -> GAME) instead.
+
 ---
 
 ## Settings
@@ -278,6 +299,9 @@ settings menu (F1). Any setting can also be passed on the command line, e.g. `--
 | `bind_free_camera` / `bind_freeze_game` | `Insert` / `Numpad0` | Keyboard keys for the free camera and freeze. |
 | `dlss_mode` | `off` | NVIDIA DLSS (RTX GPUs, experimental): `dlaa` (anti-aliasing at the chosen resolution), or `quality`, `balanced`, `performance`, `ultra_performance` (render lower and upscale; in whole steps of the resolution scale - at 4K the first three render at 1440p and `ultra_performance` at 720p). |
 | `dlss_preset` | `m` | DLSS model: `k`, `l` or `m`. |
+| `fsr_mode` | `off` | AMD FSR for the 3D scene (FSR 4 on GPUs that have it, FSR 3.1.5 elsewhere), used while `dlss_mode` is off: `native_aa`, or `quality`, `balanced`, `performance`, `ultra_performance` (render lower and upscale, in whole steps like DLSS). |
+| `fsr_sharpness` | `0` | AMD FSR's sharpening, `0` (off) to `1`. |
+| `fsr_version` | `auto` | `auto` (the newest the GPU has), `4` or `3`. |
 | `texture_lod_bias` | `0` | Texture detail: negative = sharper distant textures (-1 is NVIDIA's advice with DLSS). |
 | `soft_filter` | `false` | The game's soft blur over the whole picture (made for 720p). |
 | `story_costumes` | `true` | The four Z Chronicles costumes on the character select. |
@@ -286,9 +310,22 @@ settings menu (F1). Any setting can also be passed on the command line, e.g. `--
 | `debug_overlay` | `false` | FPS panel (F3). |
 | `debug_overlay_position` | `top-left` | `top-left`, `top-right`, `bottom-left` or `bottom-right`. |
 | `patch_60fps` | `false` | Older 60 FPS setting, only used while `frame_rate` is empty. |
+| `online_lobby_url` | *(empty)* | Lobby server WebSocket URL (`wss://.../v1/ws`). The release `burstlimit.toml` sets it to the project's lobby. Empty = LAN / Radmin VPN only. |
+| `online_mode` | `auto` | `auto`: the lobby when `online_lobby_url` is set and `REX_XNET_IP` / `REX_XNET_SEARCH_IP` are not (so `Host_Online.bat` / `Join_Online.bat` keep the old way); `lobby` / `direct` force one. |
+| `online_name` | *(empty)* | Your name in the lobby and in the game (max 15 printable ASCII characters). Empty = the Windows user name. |
+| `online_input_delay` | `4` | Lobby matches: input delay in frames (`2`-`8`), or `off` for the game's own timing (`online_tick_sleep`). The host's value is used by both players. |
+| `online_input_channel` | `true` | Lobby matches: send every frame's input right away (off = only the game's own 3-frame packs). |
+| `online_desync_check` | `true` | Lobby matches: compare the fight's state with the other PC every frame and log the first difference (`[OnlineDesync]`). |
+| `online_hold_freeze` | `false` | Online: while the fight waits for the other player's input (short waits only), also stop the effect and HUD timers. |
+| `online_redundancy` | `2` | Lobby matches: extra copies of every online datagram, sent `online_redundancy_delays_ms` (`5,12`) after it (`0` = off). |
+| `online_join_timeout_ms` | `9000` | How long joining waits for the connection to the host. |
+| `online_ice_port_range` | *(empty)* | Local UDP port range for the direct connection, e.g. `50000-50100` (empty = any). |
+| `online_ice_relay_only` | `false` | Test: connect only through the TURN relay. |
+| `online_version` | *(empty)* | Test override of the version string rooms must match (empty = the build's). |
 | `online_fast_tick` | `true` | Uses `online_tick_sleep` for the online match driver instead of the game's original 4-frame step. **Both players must use the same value.** |
-| `online_tick_sleep` | `1` | Online input buffer: `0` = same PC / LAN, `1` = internet (recommended), `2` = high ping, `3` = original game (~1 s delay). Lower = less delay, but slow motion appears if the connection cannot keep up. **Both players must use the same value.** |
+| `online_tick_sleep` | `1` | Online input buffer for LAN / Radmin VPN (and lobby matches with `online_input_delay = "off"`, where the guest takes the host's): `0` = same PC / LAN, `1` = internet (recommended), `2` = high ping, `3` = original game (~1 s delay). Lower = less delay, but slow motion appears if the connection cannot keep up. **Both players must use the same value.** |
 | `online_input_delay_test` | `true` | Resends unacknowledged online messages every 2 ticks instead of 6. |
+| `texture_cache_pack_limits` | `true` | While a texture pack is used, raise the texture cache memory limits from the video memory (up to a quarter / half of it, at most 4096 / 8192 MB). |
 | `vsync` | `true` | Older frame rate setting, only used while `frame_rate` is empty (`false` = unlocked). |
 | `texture_dump_enabled` | `false` | Dump textures to `textures/dump`. |
 | `texture_replace_enabled` | `false` | Load replacements from `textures/replace` (next to the exe). |
@@ -296,20 +333,67 @@ settings menu (F1). Any setting can also be passed on the command line, e.g. `--
 | `texture_replace_ram_mb` | `3072` | RAM for decoded replacements; past it the least recently used ones are dropped. |
 | `texture_folder` | *(exe folder)/textures* | Override the textures folder. |
 | `log_level` | `info` | `debug` / `info` / `warning` / `error`. |
+| `log_file` | *(empty)* | Log file (relative paths are from the working folder). The release `burstlimit.toml` sets `burstlimit.log`, next to the exe; empty = numbered files in `logs`. |
 
 ---
 
-## Online play (Radmin VPN / LAN)
+## Online play
 
-Both players need the **same build** of this project.
+Both players need the **same version** (rooms are only listed between identical builds).
+
+### Through the online lobby (no VPN, no IP addresses) - since 0.4.0
+The release `burstlimit.toml` already points `online_lobby_url` at the project's lobby
+(`wss://burstlimit-lobby.azoxrag2.workers.dev/v1/ws`), so it just works:
+
+- **Host:** Versus -> Xbox LIVE Battle -> Player Match -> **Create Match** -> pick the rules. Keep **Private
+  Session OFF** (ON hides the room from the list). Wait in the Session Lobby.
+- **Guest:** Versus -> Xbox LIVE Battle -> Player Match -> **Custom Match** -> leave every search page on
+  **Random** -> the host's room shows with their name; pick it.
+- Both press **Ready!** in the Session Lobby.
+- If Windows Firewall asks, allow `burstlimit.exe` (private and public networks).
+
+The two PCs connect directly (ICE: STUN hole punching), so no port forwarding is needed; when a direct
+connection isn't possible they go through a TURN relay the lobby hands out per match. Your name in the lobby and
+in the game is `online_name` in `burstlimit.toml` (max 15 characters; empty = your Windows user name). The guest
+takes the host's online settings (`online_input_delay`, `online_input_channel`, `online_tick_sleep`,
+`online_fast_tick`) for the session, and they can't change until it ends.
+
+**Input delay** (`online_input_delay`, F1 -> GAME -> Online input delay): in lobby matches each player's input
+is sent every frame, and both PCs run it a fixed number of frames later (the host's choice, 4 by default).
+The fight only waits for the other player when the ping is higher than the delay covers - one frame is
+16.7 ms: about 2 frames per 25 ms of one-way ping plus a frame of margin. Rough guide: **2** for a very low
+ping, **3-4** normal, **6-8** high ping. `Game default` (`off`) keeps the game's own timing
+(`online_tick_sleep`); the **Online input speed** item for it is only shown then.
+
+If something goes wrong online, the log (`burstlimit.log` next to the exe with the release `burstlimit.toml`)
+has the connection (`[Lobby]`, `[ICE]`, `[OnlineLink]`), the waits (`[OnlineStalls]`) and any desync
+(`[OnlineDesync]`).
+
+The build's online version string is `burstlimit-<version>/net<protocol>`: release builds set it with
+`-DBURSTLIMIT_VERSION_OVERRIDE=v0.4.0-alpha` (-> `burstlimit-v0.4.0-alpha/net2`). Without it, CMake uses the
+release tag plus the git hash of this repository (`burstlimit-v0.4.0-alpha+abc1234`); when building from a copy
+that isn't a git checkout, pass `-DBURSTLIMIT_GIT_DIR=<path to the checkout>`, otherwise every configure gets its
+own `build<timestamp>` id. The override is a CMake cache value: pass it empty again
+(`-DBURSTLIMIT_VERSION_OVERRIDE=`) for later non-release builds.
+
+The lobby server is a Cloudflare Worker (WebSocket room list, signaling and TURN credentials); it only lists
+rooms and helps the PCs find each other - the match itself is peer-to-peer.
+
+### Older method: Radmin VPN / LAN
+
+Still works, and doesn't use the lobby (`Host_Online.bat` / `Join_Online.bat` set `REX_XNET_IP`, which makes
+`online_mode = auto` pick the direct path even with `online_lobby_url` set).
 
 1. Install [Radmin VPN](https://www.radmin-vpn.com/) and join the same network (or use a normal LAN).
 2. **Host:** run `scripts\Host_Online.bat`, enter your own Radmin IPv4, then create a Player Match session.
 3. **Join:** run `scripts\Join_Online.bat`, enter your own Radmin IPv4 and then the host's IPv4, then search
    for a Player Match session.
 
-The game uses UDP port **1000**. Allow `burstlimit.exe` through Windows Firewall if the other player cannot
-connect.
+The game uses UDP port **59395** on the network (port 1000 inside the game). Allow `burstlimit.exe` through
+Windows Firewall if the other player cannot connect.
+
+This method uses **Online input speed** (`online_tick_sleep`, both players the same value) - in the settings menu
+it shows when **Online input delay** is set to **Game default**.
 
 Environment variables used by the online layer:
 
@@ -327,7 +411,10 @@ Switch between the windows with Alt+Tab; the controller follows the focused wind
 
 ## Known issues
 
-- Online play has only been tested on LAN / Radmin VPN, not over the public internet without a VPN.
+- The lobby online is new (0.4.0): it was tested between two houses (4-6 ms ping, 15,000 desync checks without
+  a difference), but some networks may still fail to connect, and desyncs are possible. Online through Wine /
+  Proton hasn't been tested.
+- AMD FSR 4 hasn't been tested on AMD hardware yet (FSR 3.1.5 was, on an NVIDIA GPU).
 - A wider field of view can show missing objects at the edges of the screen: the game doesn't draw what it
   doesn't expect to be seen.
 - FSR 2 and FSR 3 can leave trails behind moving characters, as the game has no motion vectors for them.
@@ -352,6 +439,7 @@ Switch between the windows with Alt+Tab; the controller follows the focused wind
 | `burstlimit_manifest.toml` | Recompiler manifest: entry point, extra functions and mid-asm hooks (game patches). |
 | `src/burstlimit_patches.cpp` | Implementation of the game patches (frame rate, online latency, post effects, field of view). |
 | `src/burstlimit_camera.cpp` | Free camera / photo mode. |
+| `src/burstlimit_online.cpp`, `src/burstlimit_netinput.cpp` | Online: version string, synced settings, notices; per-frame input channel, exact input delay, desync check. |
 | `src/burstlimit_app.h`, `src/main.cpp` | Application entry point and the settings menu. |
 | `res/` | Application icon (embedded into the exe). |
 | `generated/rexglue.cmake` | ReXGlue build glue. `generated/default/` is produced by the build. |
@@ -370,6 +458,8 @@ generated code (it is regenerated on every build).
 - NVIDIA DLSS (DLAA), under the NVIDIA RTX SDKs license. NVIDIA, GeForce RTX and DLSS are trademarks of NVIDIA
   Corporation; this project is not affiliated with or endorsed by NVIDIA.
 - AMD FidelityFX (FSR).
+- [libjuice](https://github.com/paullouisageneau/libjuice) (ICE / STUN / TURN for online play), MPL-2.0, used
+  unmodified (`thirdparty/rexglue-sdk/thirdparty/libjuice`).
 - Dragon Ball Z: Burst Limit © Bird Studio/Shueisha, Toei Animation. Published by Bandai Namco Games.
 
 ## Disclaimer

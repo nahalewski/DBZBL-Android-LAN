@@ -261,3 +261,55 @@ address = 0x8217E1B8
 name = "BurstLimitOnlineDriverSleep"
 registers = ["r4"]
 after_instruction = true
+
+# --- Online input channel + exact input delay (src/burstlimit_netinput.cpp) ---
+
+# sub_8217E650 (match input reset), li r9,3: the first input frame. With an
+# exact delay D online, D rounded up to a multiple of 3.
+[[entrypoint.midasm_hook]]
+address = 0x8217E6CC
+name = "BurstLimitOnlineResetFrame"
+registers = ["r9"]
+after_instruction = true
+
+# sub_8217E650, cmpwi cr6,r31,3: neutral input pre-filled below the first frame.
+[[entrypoint.midasm_hook]]
+address = 0x8217E7EC
+name = "BurstLimitOnlineResetPrefill"
+registers = ["r31", "cr6"]
+after_instruction = true
+
+# sub_8217E4E8 (consume), addi r5,r10,-3: the frame taken = tick frame - D
+# (online driver state 3 only).
+[[entrypoint.midasm_hook]]
+address = 0x8217E510
+name = "BurstLimitOnlineConsumeFrame"
+registers = ["r5", "r10"]
+after_instruction = true
+
+# sub_8217E860 (online driver state 3), bl sub_8217E4E8: before the consume,
+# send this tick's input and write the other PC's frames into its ring.
+[[entrypoint.midasm_hook]]
+address = 0x8217E874
+name = "BurstLimitOnlineBeforeConsume"
+
+# sub_8217E860, mr r31,r3 after the consume: state hash for the desync check.
+[[entrypoint.midasm_hook]]
+address = 0x8217E878
+name = "BurstLimitOnlineAfterConsume"
+registers = ["r3"]
+
+# sub_8217E100, bl sub_82176F68 (set the hold bit 0x40000000): optional
+# effect/HUD timer freeze during short holds (online_hold_freeze).
+[[entrypoint.midasm_hook]]
+address = 0x8217E22C
+name = "BurstLimitOnlineHold"
+
+# sub_82179DC8 (battle start), cmpwi cr6,r3,6: the fight starts when the next
+# input frame is 6 = the first frame (3) + the delay (3), i.e. when the
+# pre-filled neutral input is used up. With an exact delay: first frame + D.
+[[entrypoint.midasm_hook]]
+address = 0x82179E00
+name = "BurstLimitOnlineFightStartFrame"
+registers = ["r3", "cr6"]
+after_instruction = true

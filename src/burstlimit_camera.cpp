@@ -26,6 +26,9 @@
 #include <rex/runtime.h>
 #include <rex/ui/overlay/quick_menu.h>
 
+// burstlimit_online.cpp: online stall counter, every game tick.
+void BurstLimitOnlineFrame(rex::memory::Memory* memory);
+
 REXCVAR_DEFINE_BOOL(free_camera, false, "Patches",
                     "Free camera for screenshots: left stick moves, right stick looks, LB/RB "
                     "down/up, LT/RT slower/faster, D-pad up/down zoom, X freezes the game, Y "
@@ -523,6 +526,7 @@ void BurstLimitCameraFrame(PPCRegister& r30) {
   }
   ApplyFreeze(memory);
   UpdateFreeCamera(memory);
+  BurstLimitOnlineFrame(memory);
   // After the update, so it shows a pose free_camera_pose has just posted.
   if (g_where_requested.exchange(false)) {
     LogFreeCameraWhere(memory);
@@ -739,6 +743,47 @@ void MemDump(std::string_view args) {
   rex::FlushLogging();
 }
 
+// mem_write: <hex address> <hex value> [1|2|4|f]: writes one big-endian value
+// into guest memory (bytes, halfword, word - the default - or a float given as
+// a decimal number), for testing.
+void MemWrite(std::string_view args) {
+  const std::vector<std::string> parts = SplitArgs(args);
+  if (parts.size() < 2) {
+    REXLOG_WARN("mem_write: usage: mem_write <hex address> <hex value | float> [1|2|4|f]");
+    return;
+  }
+  const uint32_t address = uint32_t(std::strtoul(parts[0].c_str(), nullptr, 16));
+  const std::string kind = parts.size() > 2 ? parts[2] : "4";
+  auto* runtime = rex::Runtime::instance();
+  auto* memory = runtime ? runtime->memory() : nullptr;
+  if (!memory) {
+    return;
+  }
+  auto* heap = memory->LookupHeap(address);
+  rex::memory::HeapAllocationInfo info = {};
+  if (!heap || !heap->QueryRegionInfo(address, &info) ||
+      !(info.state & rex::memory::kMemoryAllocationCommit)) {
+    REXLOG_WARN("mem_write: {:08X}: not committed", address);
+    return;
+  }
+  uint8_t* host = memory->TranslateVirtual<uint8_t*>(address);
+  if (kind == "f") {
+    const float value = std::strtof(parts[1].c_str(), nullptr);
+    rex::memory::store_and_swap<float>(host, value);
+    REXLOG_WARN("mem_write: {:08X} = {}", address, value);
+    return;
+  }
+  const uint32_t value = uint32_t(std::strtoul(parts[1].c_str(), nullptr, 16));
+  if (kind == "1") {
+    *host = uint8_t(value);
+  } else if (kind == "2") {
+    rex::memory::store_and_swap<uint16_t>(host, uint16_t(value));
+  } else {
+    rex::memory::store_and_swap<uint32_t>(host, value);
+  }
+  REXLOG_WARN("mem_write: {:08X} = {:X} ({} bytes)", address, value, kind);
+}
+
 // mem_save: <hex address> <hex size> <file>: raw guest memory (big-endian, as
 // the game sees it) to a file; pages that aren't committed are written as
 // zeros, so file offsets stay address - start.
@@ -780,12 +825,12 @@ void MemSave(std::string_view args) {
 
 // pad_press: <buttons> [milliseconds] [user]: holds controller buttons for the
 // game, e.g. "pad_press rb" or "pad_press lb+y 300". Names: a b x y lb rb back
-// start l3 r3 up down left right.
+// start l3 r3 up down left right, and lt rt (the triggers, pulled fully).
 void PadPress(std::string_view args) {
   const std::vector<std::string> parts = SplitArgs(args);
   if (parts.empty()) {
-    REXLOG_WARN("pad_press: usage: pad_press <a|b|x|y|lb|rb|back|start|l3|r3|up|down|left|right>"
-                "[+...] [ms] [user]");
+    REXLOG_WARN("pad_press: usage: pad_press <a|b|x|y|lb|rb|lt|rt|back|start|l3|r3|up|down|left|"
+                "right>[+...] [ms] [user]");
     return;
   }
   static const std::pair<const char*, uint16_t> kButtons[] = {
@@ -795,12 +840,20 @@ void PadPress(std::string_view args) {
       {"x", 0x4000},     {"y", 0x8000},
   };
   uint16_t buttons = 0;
+  uint8_t left_trigger = 0, right_trigger = 0;
   size_t start = 0;
   const std::string& names = parts[0];
   while (start <= names.size()) {
     const size_t end = std::min(names.find('+', start), names.size());
     const std::string name = names.substr(start, end - start);
     bool found = false;
+    if (name == "lt") {
+      left_trigger = 255;
+      found = true;
+    } else if (name == "rt") {
+      right_trigger = 255;
+      found = true;
+    }
     for (const auto& [button_name, bit] : kButtons) {
       if (name == button_name) {
         buttons |= bit;
@@ -816,8 +869,9 @@ void PadPress(std::string_view args) {
   const uint32_t ms = parts.size() > 1 ? uint32_t(std::strtoul(parts[1].c_str(), nullptr, 0)) : 150;
   const uint32_t user = parts.size() > 2 ? uint32_t(std::strtoul(parts[2].c_str(), nullptr, 0)) : 0;
   if (auto* input = GetInputSystem()) {
-    input->InjectButtons(user, buttons, ms);
-    REXLOG_WARN("pad_press: {:04X} for {} ms on user {}", buttons, ms, user);
+    input->InjectButtons(user, buttons, ms, left_trigger, right_trigger);
+    REXLOG_WARN("pad_press: {:04X}{}{} for {} ms on user {}", buttons, left_trigger ? " LT" : "",
+                right_trigger ? " RT" : "", ms, user);
   }
 }
 
@@ -1073,3 +1127,5 @@ REXCVAR_DEFINE_COMMAND_ARGS(mem_find_floats, MemFindFloats, "Debug",
                             "Find floats in guest memory (last argument ~tolerance)");
 REXCVAR_DEFINE_COMMAND_ARGS(mem_dump, MemDump, "Debug",
                             "Dump guest memory words: <hex address> [count]");
+REXCVAR_DEFINE_COMMAND_ARGS(mem_write, MemWrite, "Debug",
+                            "Write guest memory: <hex address> <hex value | float> [1|2|4|f]");

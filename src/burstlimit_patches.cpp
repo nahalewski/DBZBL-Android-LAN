@@ -5,6 +5,7 @@
 #include <mutex>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include <rex/cvar.h>
@@ -142,6 +143,24 @@ struct PostEffectCvarCallbacks {
 };
 
 PostEffectCvarCallbacks g_post_effect_cvar_callbacks;
+
+// One scene upscaler at a time: turning NVIDIA DLSS on turns AMD FSR off and
+// the other way around (with both on, DLSS would go first).
+struct SceneUpscalerCvarCallbacks {
+  SceneUpscalerCvarCallbacks() {
+    for (auto [name, other] : {std::pair{"dlss_mode", "fsr_mode"},
+                               std::pair{"fsr_mode", "dlss_mode"}}) {
+      rex::cvar::RegisterChangeCallback(
+          name, [other](std::string_view, std::string_view value) {
+            if (value != "off" && rex::cvar::GetFlagByName(other) != "off") {
+              rex::cvar::SetFlagByName(other, "off");
+            }
+          });
+    }
+  }
+};
+
+SceneUpscalerCvarCallbacks g_scene_upscaler_cvar_callbacks;
 
 // Guest frame interval (vblanks per game tick). The game writes 2 (30 FPS)
 // through sub_82218940; the 60 FPS patch forces 1. The pause/match-quit code
@@ -333,9 +352,14 @@ void BurstLimitProjectionFov(PPCRegister& r30) {
   WidenProjection(r30.u32);
 }
 
+int BurstLimitOnlineDelayFrames();  // burstlimit_netinput.cpp
+
 // li r4,3 before bl sub_82122310 in the online frame driver: task sleep ticks.
+// With an exact input delay (online_input_delay) the driver runs every frame.
 void BurstLimitOnlineDriverSleep(PPCRegister& r4) {
-  if (REXCVAR_GET(online_fast_tick)) {
+  if (BurstLimitOnlineDelayFrames() > 0) {
+    r4.u64 = 0;
+  } else if (REXCVAR_GET(online_fast_tick)) {
     const int32_t sleep = REXCVAR_GET(online_tick_sleep);
     r4.u64 = static_cast<uint64_t>(sleep < 0 ? 0 : (sleep > 3 ? 3 : sleep));
   }

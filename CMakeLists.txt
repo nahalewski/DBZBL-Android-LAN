@@ -21,6 +21,8 @@ set(BURSTLIMIT_SOURCES
     src/burstlimit_camera.cpp
     src/burstlimit_cpk.cpp
     src/burstlimit_forms.cpp
+    src/burstlimit_netinput.cpp
+    src/burstlimit_online.cpp
     src/burstlimit_patches.cpp
     src/burstlimit_stages.cpp
 )
@@ -44,6 +46,47 @@ else()
 endif()
 
 rexglue_setup_target(burstlimit GPU_PLUGINS xenos)
+
+# Online version string: the lobby only lists rooms between identical strings.
+# Release tag + git hash; a build id when the tree isn't a git checkout (point
+# BURSTLIMIT_GIT_DIR at one to use its tag and hash).
+set(BURSTLIMIT_VERSION_OVERRIDE "" CACHE STRING "Online version string (empty = git tag + hash)")
+set(BURSTLIMIT_GIT_DIR "" CACHE PATH "Git checkout that names this build (default: the source tree)")
+set(_bl_version "${BURSTLIMIT_VERSION_OVERRIDE}")
+if(NOT _bl_version)
+    set(_bl_git_dir "${CMAKE_CURRENT_SOURCE_DIR}")
+    if(BURSTLIMIT_GIT_DIR)
+        set(_bl_git_dir "${BURSTLIMIT_GIT_DIR}")
+    endif()
+    find_package(Git QUIET)
+    set(_bl_hash "")
+    set(_bl_tag "")
+    if(GIT_FOUND)
+        execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${_bl_git_dir}" rev-parse --short HEAD
+            OUTPUT_VARIABLE _bl_hash OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET
+            RESULT_VARIABLE _bl_hash_result)
+        if(NOT _bl_hash_result EQUAL 0)
+            set(_bl_hash "")
+        endif()
+        execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${_bl_git_dir}" describe --tags
+            --match "v[0-9]*" --abbrev=0
+            OUTPUT_VARIABLE _bl_tag OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET
+            RESULT_VARIABLE _bl_tag_result)
+        if(NOT _bl_tag_result EQUAL 0)
+            set(_bl_tag "")
+        endif()
+    endif()
+    if(_bl_hash AND _bl_tag)
+        set(_bl_version "${_bl_tag}+${_bl_hash}")
+    elseif(_bl_hash)
+        set(_bl_version "g${_bl_hash}")
+    else()
+        string(TIMESTAMP _bl_stamp "%Y%m%d%H%M" UTC)
+        set(_bl_version "build${_bl_stamp}")
+    endif()
+endif()
+message(STATUS "Online version: burstlimit-${_bl_version}")
+target_compile_definitions(burstlimit PRIVATE "BURSTLIMIT_VERSION=\"${_bl_version}\"")
 
 # ReXGlue UI sources use ImGui directly.
 target_link_libraries(burstlimit PRIVATE imgui::imgui)
