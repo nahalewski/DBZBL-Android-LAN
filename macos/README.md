@@ -17,7 +17,7 @@ A packaged app does not need Python, Homebrew or an external extractor to play. 
 
 ## Open the app and install your game
 
-1. Obtain a complete app built from this source. The initial repository publication contains source, not a prebuilt Mac download.
+1. Obtain a complete app built from this source. The first release provides an Android APK; the Mac app currently requires a source build. For LAN with the 1.0 beta APK, check out the matching `v1.0-beta` tag and build it on Mac.
 2. Copy **the complete `burstlimit.app`** to a writable location such as Applications. Do not copy only the executable; the runtime and graphics libraries must stay together.
 3. Open it in Finder. Local development builds are not notarized; if macOS blocks an app you built and trust, use the system's Open/Privacy & Security approval flow.
 4. On first launch without valid game files, a native file picker asks for your USA `.iso` or a `.zip` containing extracted game files. A ZIP containing an ISO needs unpacking first. 7z/RAR wrappers are not imported directly.
@@ -100,6 +100,8 @@ With the Apple developer tools installed, install the non-Apple build tools:
 brew install cmake ninja python libarchive
 git clone --recursive https://github.com/nahalewski/DBZBL-Android-LAN.git
 cd DBZBL-Android-LAN
+git checkout v1.0-beta
+git submodule update --init --recursive
 python3 scripts/apply_android_sdk_patch.py
 ```
 

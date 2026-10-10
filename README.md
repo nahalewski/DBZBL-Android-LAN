@@ -14,11 +14,11 @@ This is a development port based on [DBZ-Burst-Limit-Recompiled](https://github.
 
 | Platform | Install and play | Build from source |
 | --- | --- | --- |
-| Android | Install a game APK built from this source, open **Burst Limit**, then select your USA `.iso` or extracted-game `.zip` when prompted. | [Android requirements and build instructions](android/README.md) |
+| Android | Install the [1.0 beta APK](https://github.com/nahalewski/DBZBL-Android-LAN/releases/tag/v1.0-beta), open **Burst Limit**, then select your USA `.iso` or extracted-game `.zip` when prompted. | [Android requirements and build instructions](android/README.md) |
 | Apple Silicon Mac | Open the complete `burstlimit.app`, then select your USA `.iso` or extracted-game `.zip` when prompted. | [Mac requirements and build instructions](macos/README.md) |
 | Android ↔ Mac LAN | Use compatible builds on the same local network. Host creates a public Player Match; guest searches Custom Match. | [LAN setup, controls and troubleshooting](docs/LAN.md) |
 
-The initial publication is source only. An APK or Mac app must be built separately; there is no bundled installer in this Git repository. Each person building the game needs the supported executable locally. People running a built app use its first-launch file picker.
+Download the **Android 1.0 beta ARM64 APK** from the [release page](https://github.com/nahalewski/DBZBL-Android-LAN/releases/tag/v1.0-beta). The release does not include game files. The Mac app currently needs a source build. Each person building the game needs the supported executable locally; people running a built app use its first-launch file picker.
 
 ## Requirements to play
 

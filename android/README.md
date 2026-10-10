@@ -12,7 +12,7 @@ Mali GPUs have compressed BC2/BC3 texture decode fallbacks and compute-based ver
 
 ## Install and first launch
 
-1. Obtain a **game APK built from this source**. This repository initially publishes source; no APK is stored in Git.
+1. Download **`DBZ-Burst-Limit-1.0-beta-arm64.apk`** from the [1.0 beta release](https://github.com/nahalewski/DBZBL-Android-LAN/releases/tag/v1.0-beta), or build your own game APK. The APK is a release asset; no APK or game data is stored in Git.
 2. Copy your USA game ISO, or ZIP containing extracted game files, to the device's Downloads folder. Keep the complete game content. A ZIP containing an ISO must be unpacked before selecting the ISO; 7z/RAR archives must be unpacked first too.
 3. Open the APK in Android's file manager and allow that file manager to **install unknown apps** when Android asks. Alternatively, use `adb install -r` as shown below.
 4. Open **Burst Limit**. The first-launch file picker appears when a valid game installation is missing. Select your `.iso` or extracted-game `.zip`.
@@ -118,7 +118,15 @@ adb -s DEVICE_SERIAL install -r \
   android/app/build/outputs/apk/game/debug/app-game-debug.apk
 ```
 
-Package: **`org.burstlimit.android`**. Launcher: **`org.burstlimit.android.GameSetupActivity`**. The debug APK is signed with the build computer's Android debug key. A distributable release should use your own maintained signing key; no signing credentials are supplied here. `assembleGameRelease` does not configure release signing automatically.
+Package: **`org.burstlimit.android`**. Launcher: **`org.burstlimit.android.GameSetupActivity`**. The debug APK is signed with the build computer's Android debug key. The published 1.0 beta is non-debuggable and signed with the same local development key as the earlier tested APKs, allowing updates from those builds without uninstalling. No signing key or credentials are supplied in the repository. An APK built on another computer with another key will not update that installation.
+
+To reproduce the beta packaging with your own local Android development key:
+
+```sh
+./android/gradlew -p android assembleGameRelease -PbetaSigning
+```
+
+Output: `android/app/build/outputs/apk/game/release/app-game-release.apk`. The beta option uses that computer's development signing identity, not the published APK's private key. Normal `assembleGameRelease` leaves signing unconfigured; configure and retain your own signing key for independently distributed builds. Published version: `1.0-beta`, version code `2`.
 
 To transfer your own archive, choose either an ISO or an extracted-game ZIP:
 

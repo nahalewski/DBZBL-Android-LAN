@@ -8,8 +8,8 @@ android {
         applicationId 'org.burstlimit.android'
         minSdk 30
         targetSdk 36
-        versionCode 1
-        versionName '0.1.0-dev'
+        versionCode 2
+        versionName '1.0-beta'
         testInstrumentationRunner 'org.burstlimit.android.ControlsInstrumentation'
         ndk { abiFilters 'arm64-v8a' }
         externalNativeBuild { cmake {
@@ -41,6 +41,18 @@ android {
     }
     externalNativeBuild { cmake { path file('src/main/cpp/CMakeLists.txt'); version '4.3.1' } }
     sourceSets { main.java.srcDirs += '../../thirdparty/rexglue-sdk/thirdparty/sdl3/android-project/app/src/main/java' }
-    buildTypes { debug { debuggable true }; release { minifyEnabled false } }
+    buildTypes {
+        debug { debuggable true }
+        release {
+            minifyEnabled false
+            debuggable false
+            // The first beta retains the local development signing identity for
+            // updates from the tested APKs. The private key stays outside Git.
+            // Normal release builds remain unsigned unless signing is configured.
+            if (project.hasProperty('betaSigning')) {
+                signingConfig signingConfigs.debug
+            }
+        }
+    }
     buildFeatures { buildConfig true }
 }
