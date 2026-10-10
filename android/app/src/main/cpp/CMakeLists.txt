@@ -1,0 +1,33 @@
+cmake_minimum_required(VERSION 3.25)
+project(burstlimit_android LANGUAGES C CXX ASM)
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+get_filename_component(BURSTLIMIT_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../../.." ABSOLUTE)
+set(REXSDK_DIR "${BURSTLIMIT_ROOT}/thirdparty/rexglue-sdk")
+option(BURSTLIMIT_ANDROID_PROBE "Build runtime diagnostics without game data" ON)
+if(BURSTLIMIT_ANDROID_PROBE)
+    add_subdirectory("${REXSDK_DIR}" rexglue-sdk)
+    target_sources(rexgpu-xenos PRIVATE mali_memexport_test.cpp mali_texture_test.cpp)
+    add_library(main SHARED runtime_probe.cpp "${BURSTLIMIT_ROOT}/src/burstlimit_android_input.cpp")
+    target_include_directories(main PRIVATE "${BURSTLIMIT_ROOT}/src")
+    target_include_directories(main PRIVATE "${CMAKE_BINARY_DIR}/rexglue-sdk/include")
+    target_link_libraries(main PRIVATE rex::runtime android log)
+    add_dependencies(main rexgpu-xenos)
+    # Compile the handwritten game integration even before the user's XEX is
+    # available. These objects are never linked into diagnostics or a game.
+    file(GLOB BURSTLIMIT_PORT_SOURCES "${BURSTLIMIT_ROOT}/src/burstlimit_*.cpp")
+    list(FILTER BURSTLIMIT_PORT_SOURCES EXCLUDE REGEX "burstlimit_install\\.cpp$")
+    add_library(burstlimit_portability OBJECT ${BURSTLIMIT_PORT_SOURCES} app_compile_check.cpp
+        "${REXSDK_DIR}/src/ui/windowed_app_main_sdl.cpp" "${REXSDK_DIR}/src/ui/rex_app.cpp")
+    target_include_directories(burstlimit_portability PRIVATE
+        "${BURSTLIMIT_ROOT}/src" "${REXSDK_DIR}/thirdparty/stb")
+    target_link_libraries(burstlimit_portability PRIVATE rex::runtime imgui::imgui libavutil)
+    target_compile_definitions(burstlimit_portability PRIVATE
+        BURSTLIMIT_VERSION="android-dev" REXGLUE_BUILD_CONFIG="Release")
+else()
+    if(NOT EXISTS "${BURSTLIMIT_ROOT}/generated/default/sources.cmake")
+        message(FATAL_ERROR "Generate game C++ with the host rexglue tool and the verified USA default.xex first. See android/README.md")
+    endif()
+    add_subdirectory("${BURSTLIMIT_ROOT}" burstlimit)
+endif()

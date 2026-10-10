@@ -9,12 +9,22 @@ project(burstlimit LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+if(APPLE)
+    # Enable both languages before configuring SDL; otherwise its .m files
+    # may be classified as Objective-C++ after a later language enable.
+    enable_language(OBJC OBJCXX)
+endif()
+
 if(NOT REXSDK_DIR AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/rexglue-sdk/CMakeLists.txt")
     set(REXSDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/rexglue-sdk" CACHE PATH
         "Path to rexglue-sdk source tree")
 endif()
 
-include(generated/rexglue.cmake)
+if(ANDROID)
+    include(android/rexglue.cmake)
+else()
+    include(generated/rexglue.cmake)
+endif()
 
 set(BURSTLIMIT_SOURCES
     src/main.cpp
@@ -23,7 +33,6 @@ set(BURSTLIMIT_SOURCES
     src/burstlimit_camera.cpp
     src/burstlimit_cpk.cpp
     src/burstlimit_forms.cpp
-    src/burstlimit_install.cpp
     src/burstlimit_kicharge.cpp
     src/burstlimit_mods.cpp
     src/burstlimit_netinput.cpp
@@ -32,6 +41,18 @@ set(BURSTLIMIT_SOURCES
     src/burstlimit_saves.cpp
     src/burstlimit_stages.cpp
 )
+
+if(ANDROID)
+    list(APPEND BURSTLIMIT_SOURCES src/burstlimit_install_android.cpp
+        src/burstlimit_android_input.cpp)
+elseif(APPLE)
+    list(APPEND BURSTLIMIT_SOURCES src/burstlimit_install_macos.mm
+        src/burstlimit_game_import.cpp)
+    set_source_files_properties(src/burstlimit_install_macos.mm PROPERTIES
+        COMPILE_OPTIONS "-fobjc-arc")
+else()
+    list(APPEND BURSTLIMIT_SOURCES src/burstlimit_install.cpp)
+endif()
 
 # Optional Discord Rich Presence. Download the Discord Social SDK and point
 # DISCORD_SDK_ROOT at it (the folder that contains include/, lib/ and bin/).
@@ -42,7 +63,29 @@ if(DISCORD_SDK_ROOT AND EXISTS "${DISCORD_SDK_ROOT}/include/discordpp.h")
     list(APPEND BURSTLIMIT_SOURCES src/discord_presence.cpp)
 endif()
 
-if(WIN32)
+if(ANDROID)
+    add_library(burstlimit SHARED ${BURSTLIMIT_SOURCES})
+    set_target_properties(burstlimit PROPERTIES OUTPUT_NAME main)
+    target_link_libraries(burstlimit PRIVATE android log libavutil)
+elseif(APPLE)
+    set(BURSTLIMIT_MAC_ICON "${CMAKE_CURRENT_SOURCE_DIR}/macos/BurstLimit.icns")
+    set_source_files_properties("${BURSTLIMIT_MAC_ICON}" PROPERTIES
+        MACOSX_PACKAGE_LOCATION Resources)
+    add_executable(burstlimit MACOSX_BUNDLE ${BURSTLIMIT_SOURCES} "${BURSTLIMIT_MAC_ICON}")
+    set_target_properties(burstlimit PROPERTIES
+        MACOSX_BUNDLE_ICON_FILE BurstLimit.icns
+        MACOSX_BUNDLE_GUI_IDENTIFIER org.burstlimit.macos
+        MACOSX_BUNDLE_BUNDLE_NAME "Burst Limit"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "0.4.1"
+        MACOSX_BUNDLE_BUNDLE_VERSION "0.4.1")
+    target_link_libraries(burstlimit PRIVATE libavutil archive
+        "-framework AppKit" "-framework UniformTypeIdentifiers")
+    # macOS ships libarchive, but Xcode doesn't ship its public headers.
+    # Only the headers are needed from Homebrew; the app links the OS library.
+    find_path(BURSTLIMIT_ARCHIVE_INCLUDE_DIR archive.h
+        PATHS /opt/homebrew/opt/libarchive/include /usr/local/opt/libarchive/include REQUIRED)
+    target_include_directories(burstlimit PRIVATE "${BURSTLIMIT_ARCHIVE_INCLUDE_DIR}")
+elseif(WIN32)
     # Exe / window / taskbar icon.
     enable_language(RC)
     list(APPEND BURSTLIMIT_SOURCES res/burstlimit.rc)
@@ -95,7 +138,13 @@ message(STATUS "Online version: burstlimit-${_bl_version}")
 target_compile_definitions(burstlimit PRIVATE "BURSTLIMIT_VERSION=\"${_bl_version}\"")
 
 # ReXGlue UI sources use ImGui directly.
-target_link_libraries(burstlimit PRIVATE imgui::imgui)
+if(ANDROID OR APPLE)
+    # rexruntime owns the ImGui context. Linking the OBJECT library here would
+    # give libmain a separate context, crashing game overlays and dialogs.
+    target_include_directories(burstlimit PRIVATE "${REXSDK_DIR}/thirdparty/imgui")
+else()
+    target_link_libraries(burstlimit PRIVATE imgui::imgui)
+endif()
 # stb_image's zlib decoder (save import reads compressed zips).
 target_include_directories(burstlimit PRIVATE "${REXSDK_DIR}/thirdparty/stb")
 if(WIN32)
@@ -116,4 +165,11 @@ if(BURSTLIMIT_DISCORD)
     )
 else()
     message(STATUS "Discord Rich Presence: OFF (set DISCORD_SDK_ROOT to enable)")
+endif()
+
+option(BURSTLIMIT_BUILD_LAN_TESTS "Build the direct LAN integration probe" OFF)
+if(BURSTLIMIT_BUILD_LAN_TESTS AND NOT WIN32 AND NOT ANDROID)
+    add_executable(burstlimit_lan_probe tests/lan_probe.cpp)
+    target_link_libraries(burstlimit_lan_probe PRIVATE rex::runtime)
+    target_include_directories(burstlimit_lan_probe PRIVATE "${CMAKE_BINARY_DIR}/rexglue-sdk/include")
 endif()

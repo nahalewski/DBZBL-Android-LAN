@@ -123,6 +123,29 @@
             "displayName": "Linux ARM64 RelWithDebInfo",
             "inherits": "linux-arm64-base",
             "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" }
+        },
+        {
+            "name": "mac-arm64-release",
+            "displayName": "macOS Apple Silicon Release",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/out/build/mac-arm64-release",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_C_COMPILER": "/usr/bin/clang",
+                "CMAKE_CXX_COMPILER": "/usr/bin/clang++",
+                "CMAKE_OBJCXX_COMPILER": "/usr/bin/clang++",
+                "CMAKE_OBJC_COMPILER": "/usr/bin/clang",
+                "CMAKE_OSX_ARCHITECTURES": "arm64",
+                "REXGLUE_ENABLE_TRACY": "OFF",
+                "REXGLUE_BUILD_TESTS": "OFF",
+                "REXGLUE_USE_VULKAN": "ON",
+                "REXGLUE_USE_D3D12": "OFF"
+            },
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Darwin"
+            }
         }
     ],
     "buildPresets": [
@@ -137,6 +160,7 @@
         { "name": "win-arm64-relwithdebinfo", "configurePreset": "win-arm64-relwithdebinfo" },
         { "name": "linux-arm64-debug", "configurePreset": "linux-arm64-debug" },
         { "name": "linux-arm64-release", "configurePreset": "linux-arm64-release" },
-        { "name": "linux-arm64-relwithdebinfo", "configurePreset": "linux-arm64-relwithdebinfo" }
+        { "name": "linux-arm64-relwithdebinfo", "configurePreset": "linux-arm64-relwithdebinfo" },
+        { "name": "mac-arm64-release", "configurePreset": "mac-arm64-release" }
     ]
 }

@@ -15,10 +15,13 @@
 
 #include <imgui.h>
 
+#include <rex/cvar.h>
 #include <rex/logging.h>
+#include <rex/system/kernel_state.h>
 #include <rex/memory.h>
 #include <rex/memory/utils.h>
 #include <rex/net/online.h>
+#include <rex/net/lan.h>
 #include <rex/net/session.h>
 #include <rex/ui/imgui_dialog.h>
 #include <rex/ui/overlay/overlay_text.h>
@@ -26,6 +29,9 @@
 #ifndef BURSTLIMIT_VERSION
 #define BURSTLIMIT_VERSION "dev"
 #endif
+
+REXCVAR_DEFINE_BOOL(lan_trace_menu_state, false, "Diagnostics",
+                    "Log guest input-driver/battle/session state for LAN debugging");
 
 namespace {
 
@@ -153,6 +159,7 @@ void BurstLimitOnlineUpdateVersion(const std::string& mods) {
 // At startup (OnPreSetup, after BurstLimitModsSetup): what the lobby layer
 // needs from the game.
 void BurstLimitOnlineSetup() {
+  rex::net::lan::ConfigureLocalAddress();
   BurstLimitOnlineUpdateVersion(BurstLimitModsOnlineTag());
   // A different frame driver step on the two PCs is a desync (the battle runs
   // step + 1 frames per input frame), so the guest takes the host's values.
@@ -172,6 +179,46 @@ std::unique_ptr<rex::ui::ImGuiDialog> BurstLimitCreateOnlineNotice(rex::ui::ImGu
 // Every game tick (BurstLimitCameraFrame): count the frames the online battle
 // is held waiting for input. One line every 10 s and a total per match.
 void BurstLimitOnlineFrame(rex::memory::Memory* memory) {
+  if (REXCVAR_GET(lan_trace_menu_state) && memory) {
+    static int64_t last_trace_ms = 0;
+    const int64_t now = NowMs();
+    if (now - last_trace_ms >= 2000 &&
+        Readable(memory, kInputManagerPointer, 4) && Readable(memory, kBattlePointer, 4)) {
+      last_trace_ms = now;
+      const uint32_t manager = LoadU32(memory, kInputManagerPointer);
+      const uint32_t battle = LoadU32(memory, kBattlePointer);
+      const int32_t driver = manager && Readable(memory, manager + kDriverState, 4)
+          ? int32_t(LoadU32(memory, manager + kDriverState)) : -1;
+      const uint32_t flags = battle && Readable(memory, battle + kBattleFlags, 4)
+          ? LoadU32(memory, battle + kBattleFlags) : 0;
+      auto* kernel = rex::system::KernelState::shared();
+      const int signin = kernel && kernel->user_profile()
+          ? int(kernel->user_profile()->signin_state()) : -1;
+      REXLOG_INFO("[LANMenuTrace] session={} signin={} manager={:08X} driver={} battle={:08X} flags={:08X}",
+          rex::net::IsGameSessionOpen(), signin, manager, driver, battle, flags);
+      if (manager && Readable(memory, manager, 1644)) {
+        const uint32_t dispatch = driver >= 0 && driver < 5
+            ? LoadU32(memory, 0x8200D0AC + uint32_t(driver) * 4) : 0;
+        const uint32_t net = LoadU32(memory, 0x84255714);
+        const uint32_t net_state = net && Readable(memory, net + 636, 4)
+            ? LoadU32(memory, net + 636) : 0;
+        REXLOG_INFO("[LANDriverTrace] fn={:08X} frame={} next={} submitted={} wait={} startup={} local={} remote={} highest={}/{} net={:08X} net_state={:X}",
+            dispatch, LoadU32(memory, manager + 1584),
+            LoadU32(memory, manager + 1588), LoadU32(memory, manager + 1592),
+            LoadU32(memory, manager + 1596), LoadU32(memory, manager + 1636),
+            LoadU32(memory, manager + 1576), LoadU32(memory, manager + 1580),
+            LoadU32(memory, manager + 776), LoadU32(memory, manager + 1560),
+            net, net_state);
+        if (net && Readable(memory, net, 1760)) {
+          REXLOG_INFO("[LANReadyTrace] ready={}/{} dispatch={:08X}/{:08X}/{:08X}/{:08X}/{:08X}",
+              LoadU32(memory, net + 1752), LoadU32(memory, net + 1756),
+              LoadU32(memory, 0x8200D0AC), LoadU32(memory, 0x8200D0B0),
+              LoadU32(memory, 0x8200D0B4), LoadU32(memory, 0x8200D0B8),
+              LoadU32(memory, 0x8200D0BC));
+        }
+      }
+    }
+  }
   StallCounter& s = g_stalls;
   if (!rex::net::IsGameSessionOpen() || !memory) {
     FlushStalls("session closed");

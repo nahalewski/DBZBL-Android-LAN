@@ -1,0 +1,43 @@
+--- a/MoltenVK/MoltenVK/GPUObjects/MVKImage.mm
++++ b/MoltenVK/MoltenVK/GPUObjects/MVKImage.mm
+@@ -1646,6 +1646,11 @@
+ 	// But get current drawable now, intead of in handler, because a new drawable might be acquired by then.
+ 	// Attach present handler before presenting to avoid race condition.
+ 	id<CAMetalDrawable> mtlDrwbl = getCAMetalDrawable();
++	// getPresentationSignaler can publish this image as available, allowing
++	// acquireAndSignalWhenAvailable to release its drawable on another thread.
++	// Own both objects before publishing availability or copying the blocks.
++	retain();
++	[mtlDrwbl retain];
+ 	MVKSwapchainSignaler signaler = getPresentationSignaler();
+ 	[mtlCmdBuff addScheduledHandler: ^(id<MTLCommandBuffer> mcb) {
+ 
+@@ -1669,16 +1674,14 @@
+ 	// Signal the fence and notify the swapchain that the present has completed
+ 	// from this callback, because the last one or two presentation completion
+ 	// callbacks can occasionally stall.
+-	retain();
+-	[mtlDrwbl retain];
+ 	auto* fence = presentInfo.fence;
+ 	if (fence) { fence->retain(); }
+ 	[mtlCmdBuff addCompletedHandler: ^(id<MTLCommandBuffer> mcb) {
+ 		signal(fence);
+ 		if (fence) { fence->release(); }
++		if (_swapchain) { _swapchain->notifyPresentComplete(presentInfo); }
+ 		[mtlDrwbl release];
+ 		release();
+-		if (_swapchain) { _swapchain->notifyPresentComplete(presentInfo); }
+ 	}];
+ 
+ 	signal(signaler.semaphore, signaler.semaphoreSignalToken, mtlCmdBuff);
+--- a/MoltenVK/MoltenVK/GPUObjects/MVKPipeline.mm
++++ b/MoltenVK/MoltenVK/GPUObjects/MVKPipeline.mm
+@@ -1991,7 +1991,7 @@
+ 					plDesc.logicOperationMVK = mvkMTLLogicOperationFromVkLogicOp(pCreateInfo->pColorBlendState->logicOp);
+ 				}
+ #endif
+-            } else if (mtlPixFmt && !supportsBlend) {
++            } else if (mtlPixFmt && !supportsBlend && pCA->blendEnable) {
+                 reportWarning(VK_ERROR_FEATURE_NOT_PRESENT, "Blending is enabled for attachment with format %s, which does not support it.", getPixelFormats()->getName(attachFmt));
+             }
+         }

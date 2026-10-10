@@ -33,8 +33,13 @@
 #include <utility>
 #include <vector>
 
+#if defined(_WIN32)
 #include <windows.h>
 #include <shellapi.h>
+#else
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 
 #include <fmt/format.h>
 
@@ -123,7 +128,11 @@ std::filesystem::path HeaderFilePath() {
 std::string LocalTime(const char* format) {
   const std::time_t now = std::time(nullptr);
   std::tm local{};
+#if defined(_WIN32)
   localtime_s(&local, &now);
+#else
+  localtime_r(&now, &local);
+#endif
   char text[64];
   std::strftime(text, sizeof(text), format, &local);
   return text;
@@ -134,7 +143,7 @@ std::string ShortName(const std::filesystem::path& path) {
   std::error_code error;
   auto relative = std::filesystem::relative(path, g_exe_directory, error);
   const std::filesystem::path& shown =
-      (error || relative.empty() || relative.native().starts_with(L"..")) ? path : relative;
+      (error || relative.empty() || *relative.begin() == std::filesystem::path("..")) ? path : relative;
   return reinterpret_cast<const char*>(shown.u8string().c_str());
 }
 
@@ -180,7 +189,18 @@ bool WriteWholeFile(const std::filesystem::path& path, const std::vector<uint8_t
       return false;
     }
   }
-  if (!MoveFileExW(temp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+#if defined(_WIN32)
+  const bool replaced = MoveFileExW(temp.c_str(), path.c_str(),
+                                   MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+#else
+  // Flush the completed temporary file before atomically replacing a save.
+  const int descriptor = open(temp.c_str(), O_RDONLY | O_CLOEXEC);
+  const bool flushed = descriptor >= 0 && fsync(descriptor) == 0;
+  if (descriptor >= 0) close(descriptor);
+  if (flushed) std::filesystem::rename(temp, path, error);
+  const bool replaced = flushed && !error;
+#endif
+  if (!replaced) {
     std::filesystem::remove(temp, error);
     return false;
   }
@@ -287,7 +307,11 @@ struct ZipEntry {
 std::vector<uint8_t> MakeZip(const std::vector<ZipEntry>& entries) {
   const std::time_t now = std::time(nullptr);
   std::tm local{};
+#if defined(_WIN32)
   localtime_s(&local, &now);
+#else
+  localtime_r(&now, &local);
+#endif
   const uint32_t dos_time = uint32_t(local.tm_hour << 11 | local.tm_min << 5 | local.tm_sec / 2);
   const uint32_t dos_date =
       uint32_t((local.tm_year - 80) << 9 | (local.tm_mon + 1) << 5 | local.tm_mday);
@@ -638,12 +662,16 @@ std::filesystem::path FreeName(const std::string& stem) {
 void OpenSavesFolder(const std::filesystem::path& select) {
   std::error_code error;
   std::filesystem::create_directories(SavesFolder(), error);
+#if defined(_WIN32)
   if (!select.empty()) {
     const std::wstring arguments = L"/select,\"" + select.wstring() + L"\"";
     ShellExecuteW(nullptr, L"open", L"explorer.exe", arguments.c_str(), nullptr, SW_SHOWNORMAL);
   } else {
     ShellExecuteW(nullptr, L"open", SavesFolder().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
   }
+#else
+  REXLOG_INFO("Save export: {}", select.empty() ? SavesFolder().string() : select.string());
+#endif
 }
 
 void ExportSave() {

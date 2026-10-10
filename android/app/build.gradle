@@ -1,0 +1,46 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'org.burstlimit.android'
+    compileSdk 36
+    ndkVersion '28.2.13676358'
+    defaultConfig {
+        applicationId 'org.burstlimit.android'
+        minSdk 30
+        targetSdk 36
+        versionCode 1
+        versionName '0.1.0-dev'
+        testInstrumentationRunner 'org.burstlimit.android.ControlsInstrumentation'
+        ndk { abiFilters 'arm64-v8a' }
+        externalNativeBuild { cmake {
+            arguments '-DANDROID_STL=c++_shared', '-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON',
+                      '-DCMAKE_BUILD_TYPE=Release', '-DREXGLUE_ENABLE_TRACY=OFF',
+                      '-DREXGLUE_ENABLE_PERF_COUNTERS=OFF'
+            targets 'rexruntime', 'rexgpu-xenos', 'SDL3-shared'
+        } }
+    }
+    flavorDimensions 'content'
+    productFlavors {
+        probe {
+            dimension 'content'
+            applicationIdSuffix '.probe'
+            resValue 'string', 'app_name', 'Burst Limit Runtime Test'
+            externalNativeBuild { cmake {
+                arguments '-DBURSTLIMIT_ANDROID_PROBE=ON'
+                targets 'main', 'burstlimit_portability'
+            } }
+        }
+        game {
+            dimension 'content'
+            resValue 'string', 'app_name', 'Burst Limit'
+            externalNativeBuild { cmake {
+                arguments '-DBURSTLIMIT_ANDROID_PROBE=OFF'
+                targets 'burstlimit'
+            } }
+        }
+    }
+    externalNativeBuild { cmake { path file('src/main/cpp/CMakeLists.txt'); version '4.3.1' } }
+    sourceSets { main.java.srcDirs += '../../thirdparty/rexglue-sdk/thirdparty/sdl3/android-project/app/src/main/java' }
+    buildTypes { debug { debuggable true }; release { minifyEnabled false } }
+    buildFeatures { buildConfig true }
+}

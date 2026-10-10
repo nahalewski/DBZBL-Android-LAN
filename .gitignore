@@ -29,3 +29,46 @@
 # IDE
 /.vs/
 /.vscode/
+
+# Android local builds
+/android/.gradle/
+/android/.cxx/
+/android/**/build/
+/android/**/.cxx/
+/android/local.properties
+*.iso
+*.crdownload
+*.7z
+__pycache__/
+
+# Disc images, extracted game content, and local archives
+*.ISO
+*.XEX
+*.zip
+*.ZIP
+*.rar
+*.7Z
+*.xiso
+*.sfd
+*.SFD
+*.adx
+*.ADX
+*.cab
+*.stfs
+**/game_data_root*/
+**/user_data/
+*.apk
+*.aab
+*.dmg
+*.tar.gz
+*.tar.xz
+
+# Local deployment evidence and artwork working notes
+/android/*manifest*.json
+/macos/*manifest*
+/macos/STATUS.md
+/macos/lan-fold-*
+/macos/texture-exponent-defaults-*
+/macos/renderer-texture-exponent-sdk.patch
+/res/app-icon-generation.json
+.DS_Store

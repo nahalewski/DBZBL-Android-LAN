@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdlib>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -7,7 +8,11 @@
 #include <string>
 #include <utility>
 #include <vector>
+#if defined(_WIN32)
 #include <windows.h>
+#endif
+#include <rex/filesystem.h>
+#include <SDL3/SDL.h>
 
 #include <rex/cvar.h>
 #include <rex/rex_app.h>
@@ -43,6 +48,12 @@ std::unique_ptr<rex::ui::ImGuiDialog> BurstLimitCreateInstaller(
     rex::ui::ImGuiDrawer* drawer, const std::filesystem::path& target,
     std::function<void(std::filesystem::path)> done,
     std::function<void(std::function<void()>)> defer);
+#if defined(__ANDROID__)
+bool BurstLimitVerifyAndroidData(const std::filesystem::path& root);
+#elif defined(__APPLE__)
+bool BurstLimitVerifyMacData(const std::filesystem::path& root);
+bool BurstLimitRunMacSetup(const std::filesystem::path& target);
+#endif
 
 class BurstlimitApp : public rex::ReXApp {
  public:
@@ -54,7 +65,31 @@ class BurstlimitApp : public rex::ReXApp {
         new BurstlimitApp(ctx, "burstlimit", PPCImageConfig));
   }
 
-  // Burst Limit only ships with the Xenos (D3D12) renderer, so use it when no
+#if defined(__APPLE__)
+  bool SetupEnvironment() override {
+    const auto target = GameDataDirectory() / "game_data_root";
+    if (!BurstLimitVerifyMacData(rex::cvar::Query<std::string>("game_data_root")) &&
+        !BurstLimitVerifyMacData(target) && !BurstLimitRunMacSetup(target))
+      return false;
+    return rex::ReXApp::SetupEnvironment();
+  }
+
+  void OnPostInitLogging() override {
+    // Finder launches need the same working renderer/input defaults as the
+    // development launcher. Respect saved settings and explicit overrides.
+    for (const auto& [name, value] : std::vector<std::pair<const char*, const char*>>{
+             {"fullscreen", "false"}, {"mnk_mode", "true"},
+             {"vulkan_dynamic_rendering", "false"},
+             {"async_shader_compilation", "false"}, {"frame_rate", "30"},
+             {"draw_resolution_scale_x", "1"}, {"draw_resolution_scale_y", "1"}}) {
+      if (rex::cvar::GetFlagSource(name) == rex::cvar::Source::kDefault)
+        rex::cvar::SetFlagByName(name, value);
+    }
+  }
+#endif
+
+  // Burst Limit uses the Xenos renderer (D3D12 on Windows, Vulkan on Android),
+  // so use it when no
   // gpu_plugin was configured instead of starting headless.
   void OnPreSetup(rex::RuntimeConfig& config) override {
     if (config.gpu_plugin.empty()) {
@@ -93,15 +128,19 @@ class BurstlimitApp : public rex::ReXApp {
     });
   }
 
-  // No game files yet (first start): ask for the disc image and copy its
-  // files next to the exe (burstlimit_install.cpp), then start.
+  // No game files yet: ask for the player's disc image, install locally,
+  // and resume startup. macOS uses the user's Application Support folder.
   std::optional<rex::PathConfig> OnFinalizePaths(
       const rex::PathConfig& defaults, std::function<void(rex::PathConfig)> resume) override {
+#if defined(__APPLE__)
+    // Native setup completes before SetupPresentation starts Metal/Vulkan.
+    return defaults;
+#else
     if (!defaults.game_data_root.empty() || !imgui_drawer()) {
       return defaults;
     }
     installer_ = BurstLimitCreateInstaller(
-        imgui_drawer(), ExeDirectory() / L"game_data_root",
+        imgui_drawer(), GameDataDirectory() / L"game_data_root",
         [this, defaults, resume](std::filesystem::path root) {
           rex::PathConfig paths = defaults;
           paths.game_data_root = std::move(root);
@@ -112,6 +151,7 @@ class BurstlimitApp : public rex::ReXApp {
           app_context().CallInUIThreadDeferred(std::move(function));
         });
     return std::nullopt;
+#endif
   }
 
   void OnShutdown() override {
@@ -224,7 +264,7 @@ class BurstlimitApp : public rex::ReXApp {
          {"balanced", "Balanced"},
          {"performance", "Performance"},
          {"ultra_performance", "Ultra Performance"}},
-        "NVIDIA's AI anti-aliasing and upscaling for the 3D scene (RTX GPUs). DLAA keeps the "
+        "NVIDIA's anti-aliasing and upscaling for the 3D scene (RTX GPUs). DLAA keeps the "
         "resolution above; Quality to Ultra Performance render below it and upscale the scene "
         "to it, for more FPS, with the HUD drawn at the full resolution. Only whole steps "
         "exist: at 4K, Quality to Performance render at 2560x1440 and Ultra Performance at "
@@ -397,31 +437,62 @@ class BurstlimitApp : public rex::ReXApp {
   }
 
   static std::filesystem::path ExeDirectory() {
+#if defined(_WIN32)
     wchar_t exe_path[MAX_PATH] = {};
     const DWORD length = GetModuleFileNameW(nullptr, exe_path, MAX_PATH);
     if (length == 0 || length >= MAX_PATH) {
       return std::filesystem::current_path();
     }
     return std::filesystem::path(exe_path).parent_path();
+#elif defined(__ANDROID__)
+    const char* storage = SDL_GetAndroidExternalStoragePath();
+    return storage ? std::filesystem::path(storage) : std::filesystem::path(SDL_GetAndroidInternalStoragePath());
+#else
+    return rex::filesystem::GetExecutableFolder();
+#endif
   }
 
-  // Portable build: always load game files beside burstlimit.exe.
+  static std::filesystem::path GameDataDirectory() {
+#if defined(__APPLE__)
+    if (const char* home = std::getenv("HOME"); home && *home) {
+      return std::filesystem::path(home) / "Library" / "Application Support" / "Burst Limit";
+    }
+    return rex::filesystem::GetUserFolder() / "Burst Limit";
+#else
+    return ExeDirectory();
+#endif
+  }
+
+  // Portable builds load game files beside the executable.
   // This intentionally ignores stale game_data_root values from old configs.
   void OnConfigurePaths(rex::PathConfig& paths) override {
-    wchar_t exe_path[MAX_PATH] = {};
-    const DWORD length = GetModuleFileNameW(nullptr, exe_path, MAX_PATH);
-
-    if (length == 0 || length >= MAX_PATH) {
-      return;
+    const auto local_game_root = GameDataDirectory() / "game_data_root";
+#if defined(__ANDROID__)
+    paths.config_path = ExeDirectory() / "burstlimit.toml";
+    // A configured directory still needs the executable and archive files.
+    if (!BurstLimitVerifyAndroidData(paths.game_data_root)) {
+      paths.game_data_root.clear();
     }
+#endif
 
-    const auto local_game_root =
-        std::filesystem::path(exe_path).parent_path() / L"game_data_root";
+#if defined(__APPLE__)
+    // An installed .app can be read-only. Keep settings outside its bundle.
+    paths.config_path = GameDataDirectory() / "burstlimit.toml";
+    if (!BurstLimitVerifyMacData(paths.game_data_root)) {
+      paths.game_data_root.clear();
+    }
+#endif
 
     // The folder next to the executable, unless --game_data_root (or the
     // config) names another one.
     if (paths.game_data_root.empty() &&
+#if defined(__ANDROID__)
+        BurstLimitVerifyAndroidData(local_game_root)) {
+#elif defined(__APPLE__)
+        BurstLimitVerifyMacData(local_game_root)) {
+#else
         std::filesystem::exists(local_game_root / L"default.xex")) {
+#endif
       paths.game_data_root = local_game_root;
     }
   }
