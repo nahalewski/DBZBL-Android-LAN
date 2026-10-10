@@ -4,7 +4,7 @@ These ports emulate the game's Xbox networking/session calls over direct UDP on 
 
 ## Prepare both devices
 
-- Install/build compatible versions from the **same source commit and tag state**. Discovery compares the compatibility version exactly. The 1.0 beta default is pinned to the published APK's identifier so history maintenance does not break Android-to-Mac discovery. A newer source build may not find an older installed APK even if both boot.
+- Use the matching **Android and Mac 1.0 beta release assets**, or source builds with compatible runtime/gameplay settings. The Android source tag is `v1.0-beta`; the packaged Mac source tag is `v1.0-beta-macos`. Discovery compares the compatibility version exactly. The 1.0 beta default is pinned to the published APK's identifier so history maintenance does not break Android-to-Mac discovery. A newer source build may not find an older installed APK even if both boot.
 - Connect both devices to the same local IPv4 network. Mac Ethernet and Android Wi-Fi work when the router bridges them; using the same ordinary Wi-Fi is simplest.
 - Avoid guest Wi-Fi, AP/client isolation, or a VPN that blocks local traffic. Wireless ADB connection is independent of the game.
 - Allow local network access for the Mac app if macOS asks, and allow the app through the firewall.

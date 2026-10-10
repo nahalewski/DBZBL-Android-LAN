@@ -76,8 +76,10 @@ elseif(APPLE)
         MACOSX_BUNDLE_ICON_FILE BurstLimit.icns
         MACOSX_BUNDLE_GUI_IDENTIFIER org.burstlimit.macos
         MACOSX_BUNDLE_BUNDLE_NAME "Burst Limit"
-        MACOSX_BUNDLE_SHORT_VERSION_STRING "0.4.1"
-        MACOSX_BUNDLE_BUNDLE_VERSION "0.4.1")
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "1.0"
+        MACOSX_BUNDLE_BUNDLE_VERSION "1"
+        MACOSX_BUNDLE_LONG_VERSION_STRING "1.0 beta"
+        MACOSX_BUNDLE_INFO_STRING "DBZ Burst Limit 1.0 beta")
     target_link_libraries(burstlimit PRIVATE libavutil archive
         "-framework AppKit" "-framework UniformTypeIdentifiers")
     # macOS ships libarchive, but Xcode doesn't ship its public headers.

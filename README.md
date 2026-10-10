@@ -15,10 +15,10 @@ This is a development port based on [DBZ-Burst-Limit-Recompiled](https://github.
 | Platform | Install and play | Build from source |
 | --- | --- | --- |
 | Android | Install the [1.0 beta APK](https://github.com/nahalewski/DBZBL-Android-LAN/releases/tag/v1.0-beta), open **Burst Limit**, then select your USA `.iso` or extracted-game `.zip` when prompted. | [Android requirements and build instructions](android/README.md) |
-| Apple Silicon Mac | Open the complete `burstlimit.app`, then select your USA `.iso` or extracted-game `.zip` when prompted. | [Mac requirements and build instructions](macos/README.md) |
+| Apple Silicon Mac | Download the [1.0 beta Mac ZIP](https://github.com/nahalewski/DBZBL-Android-LAN/releases/tag/v1.0-beta), open **Burst Limit.app**, then select your USA `.iso` or extracted-game `.zip` when prompted. | [Mac requirements and build instructions](macos/README.md) |
 | Android ↔ Mac LAN | Use compatible builds on the same local network. Host creates a public Player Match; guest searches Custom Match. | [LAN setup, controls and troubleshooting](docs/LAN.md) |
 
-Download the **Android 1.0 beta ARM64 APK** from the [release page](https://github.com/nahalewski/DBZBL-Android-LAN/releases/tag/v1.0-beta). The release does not include game files. The Mac app currently needs a source build. Each person building the game needs the supported executable locally; people running a built app use its first-launch file picker.
+Download the **Android 1.0 beta ARM64 APK** from the [release page](https://github.com/nahalewski/DBZBL-Android-LAN/releases/tag/v1.0-beta). The release does not include game files. The same release includes the **Apple Silicon Mac 1.0 beta ZIP**. Extract it and move the complete app to Applications. Each person building the game needs the supported executable locally; people running a built app use its first-launch file picker.
 
 ## Requirements to play
 
@@ -74,7 +74,8 @@ Keep all files extracted from the game, including videos and sound. The installe
 | --- | --- |
 | Android game installation | App external storage: `Android/data/org.burstlimit.android/files/game_data_root` (internal app storage is the fallback) |
 | Android settings and saves | App storage, including `files/user_data`; control/LAN preferences use private Android preferences |
-| Finder-launched Mac installation, settings and saves | `~/Library/Application Support/Burst Limit/` |
+| Finder-launched Mac installation and settings | `~/Library/Application Support/Burst Limit/` |
+| Finder-launched Mac saves, caches and logs | `~/.local/share/burstlimit/` by default; configurable user data/XDG root |
 | Mac source launcher saves | `out/mac-user-data/`; `macos/run.sh` selects this separate profile |
 
 Do not uninstall the Android app or clear its data unless you intend to remove its stored data. Updating with the same package and signing key preserves app data. Rebuilding a debug APK on another computer can use a different signing key, causing an update to be rejected.
@@ -98,7 +99,7 @@ Connect both devices to the same local network. LAN is enabled by default. No Xb
 2. Guest: **Versus → Online Battle → Player Match → Custom Match**. Use broad search criteria, such as Random, and select the host's gamertag.
 3. Both players choose **Ready**, then select fighters and the stage.
 
-Automatic discovery lists actual compatible public rooms by gamertag, so entering an IP address is normally unnecessary. Builds must advertise the same compatibility version; build both platforms from the same Git commit and tag state. Use matching gameplay settings/mods. Public internet matchmaking is not implemented for these ports. [Full LAN instructions](docs/LAN.md) cover firewall settings, manual addressing and connection failures.
+Automatic discovery lists actual compatible public rooms by gamertag, so entering an IP address is normally unnecessary. Builds must advertise the same compatibility version. The two 1.0 beta release assets match; for source builds, use the corresponding beta tags and matching runtime/gameplay settings. Use matching gameplay settings/mods. Public internet matchmaking is not implemented for these ports. [Full LAN instructions](docs/LAN.md) cover firewall settings, manual addressing and connection failures.
 
 ## Get the source
 

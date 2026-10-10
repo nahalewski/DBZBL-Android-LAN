@@ -74,6 +74,11 @@ class BurstlimitApp : public rex::ReXApp {
     return rex::ReXApp::SetupEnvironment();
   }
 
+  void OnConfigureLogging(rex::LogConfig& config) override {
+    // A signed/read-only app bundle must remain unchanged during execution.
+    config.log_dir = user_data_root() / "logs";
+  }
+
   void OnPostInitLogging() override {
     // Finder launches need the same working renderer/input defaults as the
     // development launcher. Respect saved settings and explicit overrides.

@@ -17,21 +17,23 @@ A packaged app does not need Python, Homebrew or an external extractor to play. 
 
 ## Open the app and install your game
 
-1. Obtain a complete app built from this source. The first release provides an Android APK; the Mac app currently requires a source build. For LAN with the 1.0 beta APK, check out the matching `v1.0-beta` tag and build it on Mac.
-2. Copy **the complete `burstlimit.app`** to a writable location such as Applications. Do not copy only the executable; the runtime and graphics libraries must stay together.
-3. Open it in Finder. Local development builds are not notarized; if macOS blocks an app you built and trust, use the system's Open/Privacy & Security approval flow.
+1. Download **`DBZ-Burst-Limit-1.0-beta-macos-arm64.zip`** from the [1.0 beta release](https://github.com/nahalewski/DBZBL-Android-LAN/releases/tag/v1.0-beta), or build the complete app from source. The Mac asset source is tagged `v1.0-beta-macos`; its LAN identifier is compatible with the Android 1.0 beta APK.
+2. Extract the ZIP and copy **the complete `Burst Limit.app`** to a writable location such as Applications. Do not copy only the executable; the runtime and graphics libraries must stay together.
+3. Open it in Finder. This beta is ad-hoc signed and **not notarized**. If macOS blocks the app you downloaded and trust, use **System Settings → Privacy & Security → Open Anyway** after the first attempted launch. Keep normal macOS security settings enabled.
 4. On first launch without valid game files, a native file picker asks for your USA `.iso` or a `.zip` containing extracted game files. A ZIP containing an ISO needs unpacking first. 7z/RAR wrappers are not imported directly.
 5. Setup verifies the USA executable, shows progress and allows cancellation. It keeps the original archive and publishes game files after the copy verifies successfully. Subsequent launches reuse the installation.
 
-Finder-launched data lives in:
+Finder-launched game files and configuration live in:
 
 ```text
 ~/Library/Application Support/Burst Limit/
 ├── game_data_root/
 │   ├── default.xex
 │   └── LONG2DATA/
-└── ... settings, logs and user data ...
+└── burstlimit.toml
 ```
+
+Finder saves, caches and logs use `~/.local/share/burstlimit/` by default (or the configured `XDG_DATA_HOME`/`user_data_root`). The source launcher keeps its separate `out/mac-user-data` profile. Runtime logs are written outside the signed app bundle.
 
 The file picker and importer run before the game renderer starts. A valid existing installation skips the picker. If an invalid/nonempty destination exists, setup refuses to overwrite it: preserve or move that directory, then retry. Removing the `.app` alone does not remove Application Support data.
 
@@ -100,7 +102,7 @@ With the Apple developer tools installed, install the non-Apple build tools:
 brew install cmake ninja python libarchive
 git clone --recursive https://github.com/nahalewski/DBZBL-Android-LAN.git
 cd DBZBL-Android-LAN
-git checkout v1.0-beta
+git checkout v1.0-beta-macos
 git submodule update --init --recursive
 python3 scripts/apply_android_sdk_patch.py
 ```
@@ -125,7 +127,15 @@ This applies the pinned MoltenVK drawable-lifetime patch, configures the `mac-ar
 
 The script configures again after code generation so a fresh checkout includes the emitted game sources in its build graph.
 
-Output:
+Package the app without game files, logs or saves:
+
+```sh
+python3 macos/package.py
+```
+
+The packager copies only the executable, bundled runtime/Vulkan libraries, icon, ICD and app metadata. Vulkan libraries and ICD data are placed in `Contents/Resources/vulkan`, a layout already supported by runtime discovery. It signs the complete staged bundle with an ad-hoc signature, verifies the signature and creates `out/releases/v1.0-beta/DBZ-Burst-Limit-1.0-beta-macos-arm64.zip`. No Apple distribution identity or notarization credentials are included.
+
+Output before packaging:
 
 ```text
 out/build/mac-arm64-release/burstlimit.app
