@@ -99,7 +99,10 @@ rexglue_setup_target(burstlimit GPU_PLUGINS xenos)
 # Online version string: the lobby only lists rooms between identical strings.
 # Release tag + git hash; a build id when the tree isn't a git checkout (point
 # BURSTLIMIT_GIT_DIR at one to use its tag and hash).
-set(BURSTLIMIT_VERSION_OVERRIDE "" CACHE STRING "Online version string (empty = git tag + hash)")
+# Keep the published beta's wire compatibility independent of rewritten Git
+# metadata. This identity matches the existing 1.0 beta APK and native protocol.
+set(BURSTLIMIT_VERSION_OVERRIDE "v1.0-beta+b468e11" CACHE STRING
+    "Online compatibility identity (empty = git tag + hash)")
 set(BURSTLIMIT_GIT_DIR "" CACHE PATH "Git checkout that names this build (default: the source tree)")
 set(_bl_version "${BURSTLIMIT_VERSION_OVERRIDE}")
 if(NOT _bl_version)
